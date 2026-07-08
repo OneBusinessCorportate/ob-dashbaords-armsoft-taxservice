@@ -1,0 +1,13 @@
+{
+  "name": "ob-discrepancy-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OneBusiness — дашборд расхождений ArmSoft / TaxService / выгрузка Артёма",
+  "scripts": {
+    "build": "vite build",
+    "start": "vite --host 0.0.0.0 --port $PORT"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}
