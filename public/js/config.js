@@ -18,28 +18,43 @@ const CONFIG = {
 /* -----------------------------------------------------------------------------
  * ПРАВИЛА (настраиваемые)
  *
- * Схема данных в проекте OB Artyom:
- *  - ob_accounting_companies — базовый реестр клиентов OB
- *      (is_active, accountant_name, armsoft_company_id, tax_account_id)
- *  - v_tax_accounts     — налоговый кабинет (TaxService), выгрузка Артёма;
- *                         tin = ՀՎՀՀ (ХВХХ)
- *  - v_armsoft_companies — ArmSoft, выгрузка Артёма
- *  - artem_companies    — собственный список-выгрузка Артёма (tin = ՀՎՀՀ)
- *  - accountant_daily_comments — что бухгалтеры говорили на утренних встречах
- *  - accounting_activities — фактическая работа по системам (armsoft/taxservice)
+ * ЧТО ТАКОЕ «ВЫГРУЗКА АРТЁМА»:
+ *   Весь проект OB Artyom — это и есть результат выгрузки Артёма. Его парсеры
+ *   (armsoft_db.parser_modules) выгружают данные из налогового кабинета и
+ *   ArmSoft в таблицы armsoft_db. Поэтому «выгрузка Артёма» = фактически
+ *   разобранные им данные:
+ *     - TaxService (налоговый кабинет) → v_tax_accounts  (tin = ՀՎՀՀ)
+ *     - ArmSoft                        → v_armsoft_companies
  *
- * ВАЖНО: в реестре клиентов НЕТ собственного поля ՀՎՀՀ, поэтому ՀՎՀՀ клиента
- * восстанавливается через связь tax_account_id → v_tax_accounts.tin, либо через
- * совпадение названия с TaxService / списком Артёма.
+ * ИСТОЧНИК ИСТИНЫ «кто наш активный клиент» — реестр OB:
+ *     - ob_accounting_companies (is_active, accountant_name,
+ *       armsoft_company_id → v_armsoft_companies.company_id,
+ *       tax_account_id     → v_tax_accounts.id)
+ *
+ * ПРОЧЕЕ:
+ *     - accountant_daily_comments — что бухгалтеры отчитали на утренних встречах
+ *     - accounting_activities     — фактическая работа по системам (реальная)
+ *
+ * ГЛАВНЫЙ СМЫСЛ ДЕЛЬТЫ: сколько активных клиентов OB ещё НЕ попали в выгрузку
+ * Артёма. По мере новых выгрузок этот разрыв должен уменьшаться.
+ *
+ * ВАЖНО: в реестре клиентов НЕТ собственного поля ՀՎՀՀ — оно восстанавливается
+ * через связь tax_account_id → v_tax_accounts.tin либо через совпадение названия.
+ *
+ * ПРИМЕЧАНИЕ: таблица artem_companies (15 строк с тестовыми ИНН AM00…) —
+ * демонстрационные данные, в расчёте дельты НЕ используется.
  * -------------------------------------------------------------------------- */
 const RULES = {
   /**
-   * Клиент ОБЯЗАН существовать в TaxService, если:
-   * активен И (у него известен ՀՎՀՀ ИЛИ заполнено поле tax_account_id).
-   * ctx: { client, hvhh, taxMatch, armMatch, artemMatch }
+   * Клиент ОБЯЗАН существовать в TaxService, если он активен.
+   * (Действующий бизнес в Армении обязан быть в налоговом кабинете; ՀՎՀՀ —
+   *  дополнительный признак, показывается и фильтруется, но не скрывает разрыв.)
+   * Если нужно строгое правило «активен И есть ՀՎՀՀ» — раскомментируйте вторую строку.
+   * ctx: { client, hvhh, taxMatch, armMatch }
    */
   expectedInTaxService(ctx) {
-    return !!ctx.client.is_active && (!!ctx.hvhh || ctx.client.tax_account_id != null);
+    return !!ctx.client.is_active;
+    // return !!ctx.client.is_active && (!!ctx.hvhh || ctx.client.tax_account_id != null);
   },
 
   /**
@@ -53,26 +68,33 @@ const RULES = {
   },
 
   /**
+   * Клиента можно ИГНОРИРОВАТЬ (не считать расхождением «нет в TaxService»),
+   * если его название явно не является компанией — мусорные строки реестра.
+   */
+  isJunkName(name) {
+    const n = (name || '').trim().toLowerCase();
+    return !n || n === '#n/a' || n === 'n/a' || n === '-' || n.length < 2;
+  },
+
+  /**
    * Какие типы расхождений вычисляются и сохраняются в delta_items.
    * Отключите тип, убрав его из списка.
    */
   ENABLED_ISSUE_TYPES: [
-    'missing_taxservice',
-    'missing_armsoft',
-    'tax_not_in_artem',
-    'armsoft_not_in_artem',
-    'meeting_not_in_artem',
-    'artem_without_work',
+    'missing_taxservice',   // активный клиент OB → нет в выгрузке TaxService
+    'missing_armsoft',      // активный клиент OB (с armsoft-привязкой) → нет в ArmSoft
+    'tax_not_in_ob',        // в выгрузке TaxService есть, в реестре OB нет
+    'armsoft_not_in_ob',    // в выгрузке ArmSoft есть, в реестре OB нет
+    'meeting_not_in_export', // упомянута на встрече → нет в выгрузке Артёма
   ],
 
-  // total_delta в дневном снимке = число ВСЕХ открытых расхождений этих типов
+  // total_delta в дневном снимке = разрыв покрытия (клиенты OB, которых ещё нет
+  // в выгрузке Артёма). Именно он должен уменьшаться после новых выгрузок.
+  // Обратные типы (tax_not_in_ob / armsoft_not_in_ob) остаются кликабельными
+  // в разделе «Дельта», но не раздувают ежедневный итог.
   TOTAL_DELTA_TYPES: [
     'missing_taxservice',
     'missing_armsoft',
-    'tax_not_in_artem',
-    'armsoft_not_in_artem',
-    'meeting_not_in_artem',
-    'artem_without_work',
   ],
 
   // Минимальная длина нормализованного названия для нечёткого (fuzzy) сравнения
@@ -99,37 +121,29 @@ const ISSUE_TYPES = {
     source: 'ob_accounting_companies',
     reason: 'У клиента заполнено ArmSoft-поле, но компания не найдена в ArmSoft — возможно, не создана или ссылка устарела',
   },
-  tax_not_in_artem: {
-    label: 'Есть в TaxService, нет в выгрузке Артёма',
-    short: 'Tax → нет у Артёма',
-    expected: 'Выгрузка Артёма',
-    missingFrom: 'Выгрузка Артёма',
+  tax_not_in_ob: {
+    label: 'Есть в выгрузке TaxService, нет в реестре OB',
+    short: 'Tax → нет в OB',
+    expected: 'Реестр OB',
+    missingFrom: 'Реестр OB',
     source: 'v_tax_accounts',
-    reason: 'Компания существует в налоговом кабинете, но отсутствует в списке-выгрузке Артёма — вероятно, ещё не экспортирована',
+    reason: 'Компания есть в налоговой выгрузке Артёма, но не привязана ни к одному активному клиенту OB — возможно, клиента забыли завести или он помечен неактивным',
   },
-  armsoft_not_in_artem: {
-    label: 'Есть в ArmSoft, нет в выгрузке Артёма',
-    short: 'ArmSoft → нет у Артёма',
-    expected: 'Выгрузка Артёма',
-    missingFrom: 'Выгрузка Артёма',
+  armsoft_not_in_ob: {
+    label: 'Есть в выгрузке ArmSoft, нет в реестре OB',
+    short: 'ArmSoft → нет в OB',
+    expected: 'Реестр OB',
+    missingFrom: 'Реестр OB',
     source: 'v_armsoft_companies',
-    reason: 'Компания существует в ArmSoft, но отсутствует в списке-выгрузке Артёма — вероятно, ещё не экспортирована',
+    reason: 'Компания есть в ArmSoft-выгрузке Артёма, но не привязана ни к одному активному клиенту OB — возможно, клиента забыли завести или он помечен неактивным',
   },
-  meeting_not_in_artem: {
-    label: 'Упомянута бухгалтером, нет в выгрузке Артёма',
+  meeting_not_in_export: {
+    label: 'Упомянута на встрече, нет в выгрузке Артёма',
     short: 'Встреча → нет у Артёма',
-    expected: 'Выгрузка Артёма',
+    expected: 'Выгрузка Артёма (TaxService/ArmSoft)',
     missingFrom: 'Выгрузка Артёма',
     source: 'accountant_daily_comments',
-    reason: 'Бухгалтер отчитался о работе по компании на утренней встрече, но компании нет в выгрузке Артёма',
-  },
-  artem_without_work: {
-    label: 'В выгрузке Артёма, но нет работы бухгалтера',
-    short: 'У Артёма без работы',
-    expected: 'Работа бухгалтера (activities/встречи)',
-    missingFrom: 'Отчёты бухгалтеров',
-    source: 'artem_companies',
-    reason: 'Компания есть в выгрузке Артёма, но не подтверждена ни активностью, ни упоминанием бухгалтера',
+    reason: 'Бухгалтер отчитался о работе по компании на утренней встрече, но её нет ни в налоговой, ни в ArmSoft-выгрузке Артёма',
   },
 };
 

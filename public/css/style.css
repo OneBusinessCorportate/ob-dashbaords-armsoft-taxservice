@@ -85,6 +85,17 @@ body.modal-open { overflow: hidden; }
 .gray { color: var(--text-3); }
 .nowrap { white-space: nowrap; }
 
+/* ------------------------------ Блок правил ------------------------------- */
+.rules-box { display: grid; gap: 10px; margin: 14px 0; }
+.rule {
+  border: 1px solid var(--border); border-left: 4px solid var(--accent);
+  border-radius: 10px; padding: 10px 12px; background: var(--surface-2);
+}
+.rule-title { display: block; font-weight: 700; font-size: 13px; margin-bottom: 3px; }
+.rule-text { font-size: 12px; color: var(--text-2); }
+.rule code { background: var(--gray-bg); padding: 1px 5px; border-radius: 5px; font-size: 11px; }
+@media (min-width: 900px) { .rules-box { grid-template-columns: 1fr 1fr; } }
+
 /* ------------------------------ Карточки KPI ------------------------------ */
 .cards {
   display: grid; gap: 10px;

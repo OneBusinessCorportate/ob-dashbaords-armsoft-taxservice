@@ -1,29 +1,51 @@
 /* =============================================================================
- * Движок расчёта расхождений (дельты) между системами.
+ * Движок расчёта расхождений (дельты).
  *
- * Сопоставление всегда: сначала ՀՎՀՀ → затем нормализованное название →
- * затем нечёткое совпадение (помечается как fuzzy, отдельно от точных).
+ * МОДЕЛЬ ДАННЫХ (важно для понимания цифр):
+ *   «Выгрузка Артёма» = данные, которые его парсеры разобрали в armsoft_db:
+ *       TaxService → v_tax_accounts,  ArmSoft → v_armsoft_companies.
+ *   Источник истины «наш активный клиент» = ob_accounting_companies.
+ *
+ *   Прямая дельта (уменьшается по мере выгрузок Артёма):
+ *     - missing_taxservice: активный клиент OB не найден в налоговой выгрузке
+ *     - missing_armsoft:    активный клиент OB (с armsoft-привязкой) не найден в ArmSoft
+ *   Обратная дельта (что Артём выгрузил, но OB не ведёт как клиента):
+ *     - tax_not_in_ob / armsoft_not_in_ob
+ *   Встречи:
+ *     - meeting_not_in_export: упомянута бухгалтером, нет в выгрузке Артёма
+ *
+ *   Таблица artem_companies (15 тестовых строк) в расчёте НЕ используется.
+ *
+ * Сопоставление всегда: ՀՎՀՀ → нормализованное название → нечёткое (fuzzy,
+ * помечается отдельно, точным совпадением не считается).
  * ========================================================================== */
 
-/**
- * Главная функция: принимает исходные данные, возвращает
- * { items, counts, clientCtxs, activityByName }.
- */
 function computeDelta(src) {
-  const { clients, tax, armsoft, artem, comments, activities } = src;
+  const { clients, tax, armsoft, comments, activities } = src;
 
   // --- индексы систем -------------------------------------------------------
   const taxIndex = buildIndex(tax, ['client_name_ru', 'org_name_hy'], 'tin');
   const armIndex = buildIndex(armsoft, ['caption', 'name'], null);
-  const artemIndex = buildIndex(artem, ['company_name'], 'tin');
   const clientIndex = buildIndex(clients, ['company_name'], null);
 
   // быстрый доступ по ID-связям из реестра клиентов
   const taxById = new Map(tax.map((t) => [t.id, t]));
   const armById = new Map(armsoft.map((a) => [a.company_id, a]));
 
+  // множества нормализованных названий/ID активных клиентов OB — для обратной дельты
+  const obActiveNames = new Set();
+  const obTaxIds = new Set();
+  const obArmIds = new Set();
+  for (const c of clients) {
+    if (!c.is_active) continue;
+    const n = normalizeName(c.company_name);
+    if (n) obActiveNames.add(n);
+    if (c.tax_account_id != null) obTaxIds.add(c.tax_account_id);
+    if (c.armsoft_company_id != null) obArmIds.add(c.armsoft_company_id);
+  }
+
   // --- признак «по компании была работа» + дата последней активности --------
-  const activityByName = new Map(); // normName -> { lastDate, systems:Set }
+  const activityByName = new Map();
   for (const a of activities) {
     const n = normalizeName(a.company_name);
     if (!n) continue;
@@ -34,7 +56,7 @@ function computeDelta(src) {
   }
 
   // --- упоминания на утренних встречах --------------------------------------
-  const mentionByName = new Map(); // normName -> { lastDate, accountant, comment }
+  const mentionByName = new Map();
   for (const c of comments) {
     const n = normalizeName(c.company_name);
     if (!n) continue;
@@ -50,7 +72,7 @@ function computeDelta(src) {
   }
 
   const items = [];
-  const clientCtxs = []; // контекст каждого клиента (для сводки и отладки правил)
+  const clientCtxs = [];
 
   /** Хелпер: собрать объект расхождения */
   function makeItem(issueType, companyName, extra) {
@@ -69,17 +91,19 @@ function computeDelta(src) {
       client_is_active: extra.client_is_active ?? null,
       exists_in_taxservice: !!extra.exists_in_taxservice,
       exists_in_armsoft: !!extra.exists_in_armsoft,
-      exists_in_artyom_export: !!extra.exists_in_artyom_export,
+      // «есть в выгрузке Артёма» = найдено хотя бы в одной из его систем
+      exists_in_artyom_export: !!(extra.exists_in_taxservice || extra.exists_in_armsoft),
+      exists_in_ob_registry: !!extra.exists_in_ob_registry,
       exists_in_morning_meeting: !!extra.exists_in_morning_meeting,
       match_quality: extra.match_quality || 'none',
-      last_activity_date: extra.last_activity_date || null, // только для отображения
+      last_activity_date: extra.last_activity_date || null,
     };
   }
 
   const enabled = new Set(RULES.ENABLED_ISSUE_TYPES);
 
   // ==========================================================================
-  // 1–2. Прямые проверки по реестру клиентов: должен быть в TaxService / ArmSoft
+  // 1–2. Реестр OB → должен быть в выгрузке TaxService / ArmSoft Артёма
   // ==========================================================================
   for (const client of clients) {
     const names = [client.company_name];
@@ -87,28 +111,26 @@ function computeDelta(src) {
     // связь по ID приоритетнее совпадения по названию
     let taxMatch;
     if (client.tax_account_id != null && taxById.has(client.tax_account_id)) {
-      taxMatch = { found: true, entity: taxById.get(client.tax_account_id), quality: 'exact_hvhh' };
+      taxMatch = { found: true, entity: taxById.get(client.tax_account_id), quality: 'exact_id' };
     } else {
       taxMatch = findMatch(taxIndex, { hvhh: null, names });
     }
 
     let armMatch;
     if (client.armsoft_company_id != null && armById.has(client.armsoft_company_id)) {
-      armMatch = { found: true, entity: armById.get(client.armsoft_company_id), quality: 'exact_hvhh' };
+      armMatch = { found: true, entity: armById.get(client.armsoft_company_id), quality: 'exact_id' };
     } else {
       armMatch = findMatch(armIndex, { hvhh: null, names });
     }
 
-    // ՀՎՀՀ клиента восстанавливаем из TaxService или из списка Артёма
-    let hvhh = taxMatch.found ? taxMatch.entity.tin : null;
-    let artemMatch = findMatch(artemIndex, { hvhh, names });
-    if (!hvhh && artemMatch.found) hvhh = artemMatch.entity.tin;
+    // ՀՎՀՀ клиента восстанавливаем из TaxService (tin)
+    const hvhh = taxMatch.found ? taxMatch.entity.tin : null;
 
     const norm = normalizeName(client.company_name);
     const mention = mentionByName.get(norm) || null;
     const activity = activityByName.get(norm) || null;
 
-    const ctx = { client, hvhh, taxMatch, armMatch, artemMatch, mention, activity };
+    const ctx = { client, hvhh, taxMatch, armMatch, mention, activity };
     clientCtxs.push(ctx);
 
     const common = {
@@ -117,12 +139,14 @@ function computeDelta(src) {
       client_is_active: client.is_active,
       exists_in_taxservice: taxMatch.found && taxMatch.quality !== 'fuzzy',
       exists_in_armsoft: armMatch.found && armMatch.quality !== 'fuzzy',
-      exists_in_artyom_export: artemMatch.found && artemMatch.quality !== 'fuzzy',
+      exists_in_ob_registry: true,
       exists_in_morning_meeting: !!mention,
       last_activity_date: activity ? activity.lastDate : null,
     };
 
-    // fuzzy-совпадение НЕ считается найденным, но фиксируется как возможная причина
+    // пропускаем явно мусорные строки реестра (#N/A и т.п.)
+    if (RULES.isJunkName(client.company_name)) continue;
+
     if (enabled.has('missing_taxservice') && RULES.expectedInTaxService(ctx) && !common.exists_in_taxservice) {
       items.push(makeItem('missing_taxservice', client.company_name, {
         ...common,
@@ -145,52 +169,52 @@ function computeDelta(src) {
   }
 
   // ==========================================================================
-  // 3. Есть в TaxService, но нет в выгрузке Артёма
+  // 3. Выгрузка TaxService Артёма → нет в реестре активных клиентов OB
   // ==========================================================================
-  if (enabled.has('tax_not_in_artem')) {
+  if (enabled.has('tax_not_in_ob')) {
     for (const t of tax) {
-      const names = [t.client_name_ru, t.org_name_hy];
-      const am = findMatch(artemIndex, { hvhh: t.tin, names });
-      if (am.found && am.quality !== 'fuzzy') continue;
-      const cm = findMatch(clientIndex, { hvhh: null, names });
-      const client = cm.found ? cm.entity : null;
-      items.push(makeItem('tax_not_in_artem', t.client_name_ru || t.org_name_hy || ('ՀՎՀՀ ' + t.tin), {
+      if (obTaxIds.has(t.id)) continue; // явно привязан к клиенту OB
+      const n = normalizeName(t.client_name_ru) || normalizeName(t.org_name_hy);
+      if (n && obActiveNames.has(n)) continue; // совпал по названию
+      const cm = findMatch(clientIndex, { hvhh: null, names: [t.client_name_ru, t.org_name_hy] });
+      if (cm.found && cm.quality !== 'fuzzy') continue; // точное совпадение с любым клиентом
+      items.push(makeItem('tax_not_in_ob', t.client_name_ru || t.org_name_hy || ('ՀՎՀՀ ' + t.tin), {
         hvhh: t.tin,
-        accountant_name: client ? client.accountant_name : null,
-        client_is_active: client ? client.is_active : null,
+        accountant_name: cm.found ? cm.entity.accountant_name : null,
+        client_is_active: cm.found ? cm.entity.is_active : null,
         exists_in_taxservice: true,
         exists_in_armsoft: false,
-        exists_in_artyom_export: false,
-        exists_in_morning_meeting: mentionByName.has(normalizeName(t.client_name_ru)),
-        match_quality: am.quality,
-        possible_reason: am.quality === 'fuzzy'
-          ? `Возможное неточное совпадение в выгрузке Артёма: «${am.entity.company_name}»`
+        exists_in_ob_registry: cm.found,
+        exists_in_morning_meeting: mentionByName.has(n),
+        match_quality: cm.quality,
+        possible_reason: cm.quality === 'fuzzy'
+          ? `Возможное неточное совпадение с клиентом OB: «${cm.entity.company_name}» — проверить название`
           : undefined,
       }));
     }
   }
 
   // ==========================================================================
-  // 4. Есть в ArmSoft, но нет в выгрузке Артёма
+  // 4. Выгрузка ArmSoft Артёма → нет в реестре активных клиентов OB
   // ==========================================================================
-  if (enabled.has('armsoft_not_in_artem')) {
+  if (enabled.has('armsoft_not_in_ob')) {
     for (const a of armsoft) {
-      const names = [a.caption, a.name];
-      const am = findMatch(artemIndex, { hvhh: null, names });
-      if (am.found && am.quality !== 'fuzzy') continue;
-      const cm = findMatch(clientIndex, { hvhh: null, names });
-      const client = cm.found ? cm.entity : null;
-      items.push(makeItem('armsoft_not_in_artem', a.caption || a.name, {
+      if (obArmIds.has(a.company_id)) continue;
+      const n = normalizeName(a.caption) || normalizeName(a.name);
+      if (n && obActiveNames.has(n)) continue;
+      const cm = findMatch(clientIndex, { hvhh: null, names: [a.caption, a.name] });
+      if (cm.found && cm.quality !== 'fuzzy') continue;
+      items.push(makeItem('armsoft_not_in_ob', a.caption || a.name, {
         hvhh: null,
-        accountant_name: client ? client.accountant_name : null,
-        client_is_active: client ? client.is_active : null,
+        accountant_name: cm.found ? cm.entity.accountant_name : null,
+        client_is_active: cm.found ? cm.entity.is_active : null,
         exists_in_taxservice: false,
         exists_in_armsoft: true,
-        exists_in_artyom_export: false,
-        exists_in_morning_meeting: mentionByName.has(normalizeName(a.caption)),
-        match_quality: am.quality,
-        possible_reason: am.quality === 'fuzzy'
-          ? `Возможное неточное совпадение в выгрузке Артёма: «${am.entity.company_name}»`
+        exists_in_ob_registry: cm.found,
+        exists_in_morning_meeting: mentionByName.has(n),
+        match_quality: cm.quality,
+        possible_reason: cm.quality === 'fuzzy'
+          ? `Возможное неточное совпадение с клиентом OB: «${cm.entity.company_name}» — проверить название`
           : undefined,
       }));
     }
@@ -198,58 +222,35 @@ function computeDelta(src) {
 
   // ==========================================================================
   // 5. Упомянута бухгалтером на встрече, но нет в выгрузке Артёма
+  //    (ни в налоговой, ни в ArmSoft-выгрузке)
   // ==========================================================================
-  if (enabled.has('meeting_not_in_artem')) {
+  if (enabled.has('meeting_not_in_export')) {
     for (const [norm, m] of mentionByName) {
-      const am = findMatch(artemIndex, { hvhh: null, names: [norm] });
-      if (am.found && am.quality !== 'fuzzy') continue;
-      const tm = findMatch(taxIndex, { hvhh: null, names: [norm] });
-      const arm = findMatch(armIndex, { hvhh: null, names: [norm] });
-      items.push(makeItem('meeting_not_in_artem', m.name || norm, {
-        hvhh: tm.found && tm.quality !== 'fuzzy' ? tm.entity.tin : null,
+      const tm = findMatch(taxIndex, { hvhh: null, names: [m.name, norm] });
+      const arm = findMatch(armIndex, { hvhh: null, names: [m.name, norm] });
+      const inTax = tm.found && tm.quality !== 'fuzzy';
+      const inArm = arm.found && arm.quality !== 'fuzzy';
+      if (inTax || inArm) continue; // компания есть в выгрузке — расхождения нет
+      const cm = findMatch(clientIndex, { hvhh: null, names: [m.name, norm] });
+      items.push(makeItem('meeting_not_in_export', m.name || norm, {
+        hvhh: null,
         accountant_name: m.accountant,
-        client_is_active: null,
-        exists_in_taxservice: tm.found && tm.quality !== 'fuzzy',
-        exists_in_armsoft: arm.found && arm.quality !== 'fuzzy',
-        exists_in_artyom_export: false,
+        client_is_active: cm.found ? cm.entity.is_active : null,
+        exists_in_taxservice: false,
+        exists_in_armsoft: false,
+        exists_in_ob_registry: cm.found,
         exists_in_morning_meeting: true,
-        match_quality: am.quality,
+        match_quality: (tm.quality === 'fuzzy' || arm.quality === 'fuzzy') ? 'fuzzy' : 'none',
         last_activity_date: m.lastDate,
-        possible_reason: am.quality === 'fuzzy'
-          ? `Возможное неточное совпадение в выгрузке Артёма: «${am.entity.company_name}»`
+        possible_reason: (tm.quality === 'fuzzy' || arm.quality === 'fuzzy')
+          ? 'Возможное неточное совпадение в выгрузке Артёма — проверить название'
           : undefined,
       }));
     }
   }
 
   // ==========================================================================
-  // 6. В выгрузке Артёма, но работа бухгалтера не подтверждена
-  //    (нет ни активности в системах, ни упоминания на встрече)
-  // ==========================================================================
-  if (enabled.has('artem_without_work')) {
-    for (const a of artem) {
-      const norm = normalizeName(a.company_name);
-      const hasActivity = activityByName.has(norm);
-      const hasMention = mentionByName.has(norm);
-      if (hasActivity || hasMention) continue;
-      const cm = findMatch(clientIndex, { hvhh: null, names: [a.company_name] });
-      const tm = findMatch(taxIndex, { hvhh: a.tin, names: [a.company_name] });
-      const arm = findMatch(armIndex, { hvhh: null, names: [a.company_name] });
-      items.push(makeItem('artem_without_work', a.company_name, {
-        hvhh: a.tin,
-        accountant_name: cm.found ? cm.entity.accountant_name : null,
-        client_is_active: cm.found ? cm.entity.is_active : null,
-        exists_in_taxservice: tm.found && tm.quality !== 'fuzzy',
-        exists_in_armsoft: arm.found && arm.quality !== 'fuzzy',
-        exists_in_artyom_export: true,
-        exists_in_morning_meeting: false,
-        match_quality: 'none',
-      }));
-    }
-  }
-
-  // ==========================================================================
-  // Дедупликация по issue_key (два налоговых аккаунта с одним ՀՎՀՀ и т.п.),
+  // Дедупликация по issue_key (например, два налоговых аккаунта с одним ՀՎՀՀ),
   // чтобы счётчики совпадали с тем, что сохранится в delta_items
   // ==========================================================================
   const seenKeys = new Set();
@@ -261,7 +262,8 @@ function computeDelta(src) {
   // ==========================================================================
   // Сводные показатели для дневного снимка
   // ==========================================================================
-  const active = clientCtxs.filter((c) => c.client.is_active);
+  const nonJunk = clientCtxs.filter((c) => !RULES.isJunkName(c.client.company_name));
+  const active = nonJunk.filter((c) => c.client.is_active);
   const expectedTax = active.filter((c) => RULES.expectedInTaxService(c));
   const expectedArm = active.filter((c) => RULES.expectedInArmsoft(c));
   const foundTax = expectedTax.filter((c) => c.taxMatch.found && c.taxMatch.quality !== 'fuzzy');

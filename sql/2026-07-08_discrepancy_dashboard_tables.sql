@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS public.delta_items (
     missing_from_system      TEXT,
     exists_in_taxservice     BOOLEAN DEFAULT FALSE,
     exists_in_armsoft        BOOLEAN DEFAULT FALSE,
-    exists_in_artyom_export  BOOLEAN DEFAULT FALSE,
+    exists_in_artyom_export  BOOLEAN DEFAULT FALSE,  -- = найдено в tax ИЛИ armsoft выгрузке
+    exists_in_ob_registry    BOOLEAN DEFAULT FALSE,  -- добавлено миграцией delta_items_add_ob_registry_flag
     exists_in_morning_meeting BOOLEAN DEFAULT FALSE,
     match_quality            TEXT,
     possible_reason          TEXT,

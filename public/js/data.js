@@ -102,6 +102,7 @@ async function syncDeltaItems(computedItems, existingItems) {
       exists_in_taxservice: !!it.exists_in_taxservice,
       exists_in_armsoft: !!it.exists_in_armsoft,
       exists_in_artyom_export: !!it.exists_in_artyom_export,
+      exists_in_ob_registry: !!it.exists_in_ob_registry,
       exists_in_morning_meeting: !!it.exists_in_morning_meeting,
       match_quality: it.match_quality || 'none',
       possible_reason: it.possible_reason || null,
@@ -184,9 +185,9 @@ async function updateTzItem(id, fields) {
 /** Строка «где компания реально существует» для карточек и ТЗ */
 function sourcesLine(item) {
   const parts = [];
-  if (item.exists_in_taxservice) parts.push('TaxService');
-  if (item.exists_in_armsoft) parts.push('ArmSoft');
-  if (item.exists_in_artyom_export) parts.push('Выгрузка Артёма');
+  if (item.exists_in_taxservice) parts.push('TaxService (выгрузка Артёма)');
+  if (item.exists_in_armsoft) parts.push('ArmSoft (выгрузка Артёма)');
+  if (item.exists_in_ob_registry) parts.push('Реестр OB');
   if (item.exists_in_morning_meeting) parts.push('Утренняя встреча');
   return parts.length ? parts.join(', ') : 'нигде из отслеживаемых';
 }

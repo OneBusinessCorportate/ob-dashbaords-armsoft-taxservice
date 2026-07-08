@@ -33,8 +33,20 @@
     <!-- Карточки-показатели -->
     <div class="cards" id="summary-cards"></div>
 
+    <!-- Правила проверки (TaxService и ArmSoft — раздельно) -->
+    <div class="rules-box">
+      <div class="rule">
+        <span class="rule-title">🏛 Правило TaxService</span>
+        <span class="rule-text">Активный клиент обязан быть в налоговом кабинете (TaxService). Дельта = активные клиенты OB, которых нет в налоговой выгрузке Артёма. ՀՎՀՀ показывается там, где известен, и доступен как фильтр «только с ՀՎՀՀ».</span>
+      </div>
+      <div class="rule">
+        <span class="rule-title">💼 Правило ArmSoft</span>
+        <span class="rule-text">Клиент обязан быть в ArmSoft, если у него в реестре заполнена ArmSoft-привязка (<code>armsoft_company_id</code> — признак «заведена учётка ArmSoft»). Дельта = такие клиенты, которых нет в ArmSoft-выгрузке. Правило настраивается отдельно в <code>config.js → RULES.expectedInArmsoft</code>.</span>
+      </div>
+    </div>
+
     <h3 class="block-title">Сводная таблица · ежедневная динамика</h3>
-    <p class="hint">Нажмите на число расхождений, чтобы увидеть список компаний.</p>
+    <p class="hint">Процесс: сводка по дням → клик на дельту → список компаний → проверка с Эмилией → подтверждение причины → ТЗ Артёму. Нажмите на любое число дельты, чтобы открыть список компаний.</p>
     <div class="table-wrap">
       <table class="data-table" id="snapshot-table">
         <thead>

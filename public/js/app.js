@@ -95,7 +95,7 @@ function applyFilters(rows) {
       const sys = f.system;
       const inSys = (sys === 'taxservice' && (r.missing_from_system === 'TaxService' || r.exists_in_taxservice))
         || (sys === 'armsoft' && (r.missing_from_system === 'ArmSoft' || r.exists_in_armsoft))
-        || (sys === 'artem' && (r.missing_from_system === 'Выгрузка Артёма' || r.exists_in_artyom_export))
+        || (sys === 'ob' && (r.missing_from_system === 'Реестр OB' || r.exists_in_ob_registry))
         || (sys === 'meeting' && r.exists_in_morning_meeting);
       if (!inSys) return false;
     }
@@ -114,11 +114,19 @@ function renderSummaryCards() {
   const yesterdayIso = new Date(new Date(today + 'T00:00:00Z').getTime() - 86400e3)
     .toISOString().slice(0, 10);
   const open = openItems();
+  // Прямой разрыв покрытия (то, что уменьшается после выгрузок Артёма) — совпадает
+  // с «общей дельтой» в дневной таблице.
+  const forwardTypes = new Set(RULES.TOTAL_DELTA_TYPES);
+  const forward = open.filter((r) => forwardTypes.has(r.issue_type));
+  const missTax = open.filter((r) => r.issue_type === 'missing_taxservice');
+  const missArm = open.filter((r) => r.issue_type === 'missing_armsoft');
+  const reverse = open.filter((r) => r.issue_type === 'tax_not_in_ob' || r.issue_type === 'armsoft_not_in_ob');
 
   const cards = [
-    { label: 'Дельта сегодня', value: open.length, color: open.length ? 'red' : 'green', icon: 'Δ', drill: () => showDrill('Все открытые расхождения', open) },
-    { label: 'Нет в TaxService', value: open.filter((r) => r.issue_type === 'missing_taxservice').length, color: 'red', icon: '🏛', drill: () => showDrill(ISSUE_TYPES.missing_taxservice.label, open.filter((r) => r.issue_type === 'missing_taxservice')) },
-    { label: 'Нет в ArmSoft', value: open.filter((r) => r.issue_type === 'missing_armsoft').length, color: 'red', icon: '💼', drill: () => showDrill(ISSUE_TYPES.missing_armsoft.label, open.filter((r) => r.issue_type === 'missing_armsoft')) },
+    { label: 'Дельта сегодня (нет в выгрузке)', value: forward.length, color: forward.length ? 'red' : 'green', icon: 'Δ', drill: () => showDrill('Активные клиенты OB, которых нет в выгрузке Артёма', forward) },
+    { label: 'Нет в TaxService', value: missTax.length, color: 'red', icon: '🏛', drill: () => showDrill(ISSUE_TYPES.missing_taxservice.label, missTax) },
+    { label: 'Нет в ArmSoft', value: missArm.length, color: 'red', icon: '💼', drill: () => showDrill(ISSUE_TYPES.missing_armsoft.label, missArm) },
+    { label: 'Артём выгрузил, нет в реестре OB', value: reverse.length, color: 'yellow', icon: '📥', drill: () => showDrill('Есть в выгрузке Артёма, но нет в реестре OB', reverse) },
     { label: 'Проблемы выгрузки Артёма', value: open.filter((r) => r.confirmation_status === 'confirmed_artyom_export_problem').length, color: 'red', icon: '📤', drill: () => showDrill('Подтверждённые проблемы выгрузки', open.filter((r) => r.confirmation_status === 'confirmed_artyom_export_problem')) },
     { label: 'Ждут проверки Эмилии', value: open.filter((r) => r.confirmation_status === 'not_checked').length, color: 'yellow', icon: '⏳', drill: () => showDrill('Не проверено', open.filter((r) => r.confirmation_status === 'not_checked')) },
     { label: 'Исправлено со вчера', value: state.deltaItems.filter((r) => r.resolved_at && r.resolved_at.slice(0, 10) >= yesterdayIso).length, color: 'green', icon: '✔', drill: () => showDrill('Исправлено со вчера', state.deltaItems.filter((r) => r.resolved_at && r.resolved_at.slice(0, 10) >= yesterdayIso)) },
@@ -209,8 +217,9 @@ function renderSnapshotTable() {
 function chips(r) {
   const chip = (ok, label) =>
     `<span class="chip ${ok ? 'chip-yes' : 'chip-no'}">${ok ? '✓' : '✗'} ${label}</span>`;
-  return chip(r.exists_in_taxservice, 'Tax') + chip(r.exists_in_armsoft, 'ArmSoft')
-    + chip(r.exists_in_artyom_export, 'Артём') + chip(r.exists_in_morning_meeting, 'Встреча')
+  // Tax/ArmSoft = найдено в выгрузке Артёма по этой системе; OB = ведётся в реестре OB
+  return chip(r.exists_in_taxservice, 'TaxService') + chip(r.exists_in_armsoft, 'ArmSoft')
+    + chip(r.exists_in_ob_registry, 'Реестр OB') + chip(r.exists_in_morning_meeting, 'Встреча')
     + (r.match_quality === 'fuzzy' ? '<span class="chip chip-fuzzy">≈ неточное совпадение</span>' : '');
 }
 
@@ -263,7 +272,7 @@ function filtersHtml(idPrefix, { withConfirmation = true } = {}) {
         <option value="">Все</option>
         <option value="taxservice" ${f.system === 'taxservice' ? 'selected' : ''}>TaxService</option>
         <option value="armsoft" ${f.system === 'armsoft' ? 'selected' : ''}>ArmSoft</option>
-        <option value="artem" ${f.system === 'artem' ? 'selected' : ''}>Выгрузка Артёма</option>
+        <option value="ob" ${f.system === 'ob' ? 'selected' : ''}>Реестр OB</option>
         <option value="meeting" ${f.system === 'meeting' ? 'selected' : ''}>Встречи</option>
       </select>
     </label>
@@ -472,8 +481,14 @@ function generateArtyomMessage() {
 function renderMeetings() {
   if (!state.src) return;
   const { comments } = state.src;
-  const { taxIndex, armIndex, artemIndex } = state._indexes;
+  const { taxIndex, armIndex } = state._indexes;
   const f = state.filters;
+  // «в выгрузке Артёма» = найдено в налоговой ИЛИ ArmSoft-выгрузке (точно, не fuzzy)
+  const inExport = (name) => {
+    const tm = findMatch(taxIndex, { hvhh: null, names: [name] });
+    const arm = findMatch(armIndex, { hvhh: null, names: [name] });
+    return (tm.found && tm.quality !== 'fuzzy') || (arm.found && arm.quality !== 'fuzzy');
+  };
 
   let rows = comments.slice().sort((a, b) => (a.comment_date < b.comment_date ? 1 : -1));
   if (f.date) rows = rows.filter((c) => c.comment_date === f.date);
@@ -494,10 +509,7 @@ function renderMeetings() {
     <div class="meeting-day">
       <h3 class="block-title">Встреча ${fmtDate(date)}</h3>
       ${[...byAcc.entries()].map(([acc, list]) => {
-        const missing = list.filter((c) => {
-          const m = findMatch(artemIndex, { hvhh: null, names: [c.company_name] });
-          return !(m.found && m.quality !== 'fuzzy');
-        });
+        const missing = list.filter((c) => !inExport(c.company_name));
         return `<div class="item-card">
           <div class="item-head">
             <strong>${esc(acc)}</strong>
@@ -506,13 +518,12 @@ function renderMeetings() {
             </span>
           </div>
           ${list.map((c) => {
-            const am = findMatch(artemIndex, { hvhh: null, names: [c.company_name] });
             const tm = findMatch(taxIndex, { hvhh: null, names: [c.company_name] });
             const arm = findMatch(armIndex, { hvhh: null, names: [c.company_name] });
             const chip = (m, label) => `<span class="chip ${m.found ? (m.quality === 'fuzzy' ? 'chip-fuzzy' : 'chip-yes') : 'chip-no'}">${m.found ? (m.quality === 'fuzzy' ? '≈' : '✓') : '✗'} ${label}</span>`;
             return `<div class="meeting-row">
               <div class="meeting-company"><b>${esc(c.company_name)}</b>
-                ${chip(am, 'Артём')}${chip(tm, 'Tax')}${chip(arm, 'ArmSoft')}
+                ${chip(tm, 'TaxService')}${chip(arm, 'ArmSoft')}
               </div>
               <div class="muted">${esc(c.comment || '')}</div>
               ${c.unaccounted_work ? `<div class="item-comment">⚠ Не отражено: ${esc(c.unaccounted_work)}</div>` : ''}
@@ -548,8 +559,10 @@ async function recompute(showToast = true) {
     const existing = await loadDeltaItems();
     await syncDeltaItems(state.computed.items, existing);
     state.deltaItems = await loadDeltaItems();
+    // объём выгрузки Артёма = число разобранных им компаний (TaxService + ArmSoft)
+    const exportRecords = (state.src.tax?.length || 0) + (state.src.armsoft?.length || 0);
     await upsertSnapshot(state.computed.counts, state.src.exportMeta,
-      state.src.artem.length, state.snapshots);
+      exportRecords, state.snapshots);
     state.snapshots = await loadSnapshots();
     renderAll();
     if (showToast) toast('Дельта пересчитана и сохранена ✓');
@@ -608,11 +621,10 @@ async function init() {
     state.snapshots = snapshots;
     state.tzItems = tzItems;
 
-    // индексы для раздела «Встречи»
+    // индексы для раздела «Встречи» (сравнение с выгрузкой Артёма: tax + armsoft)
     state._indexes = {
       taxIndex: buildIndex(src.tax, ['client_name_ru', 'org_name_hy'], 'tin'),
       armIndex: buildIndex(src.armsoft, ['caption', 'name'], null),
-      artemIndex: buildIndex(src.artem, ['company_name'], 'tin'),
     };
 
     // фильтры рисуем после загрузки списка бухгалтеров
