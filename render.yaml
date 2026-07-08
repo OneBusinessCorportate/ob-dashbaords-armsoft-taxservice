@@ -1,0 +1,9 @@
+# Render blueprint: деплой дашборда одним кликом (New → Blueprint → этот репозиторий).
+# Render сам подставляет $PORT; vite.config.mjs разрешает внешние хосты.
+services:
+  - type: web
+    name: ob-discrepancy-dashboard
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
