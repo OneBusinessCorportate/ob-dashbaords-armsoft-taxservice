@@ -110,7 +110,9 @@ function applyFilters(rows) {
 /* ------------------------------- Карточки -------------------------------- */
 function renderSummaryCards() {
   const today = todayStr();
-  const yesterdayIso = new Date(Date.now() - 86400e3).toISOString().slice(0, 10);
+  // «вчера» считаем от бизнес-даты (Ереван), а не от UTC-времени браузера
+  const yesterdayIso = new Date(new Date(today + 'T00:00:00Z').getTime() - 86400e3)
+    .toISOString().slice(0, 10);
   const open = openItems();
 
   const cards = [

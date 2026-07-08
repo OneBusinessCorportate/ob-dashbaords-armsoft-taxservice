@@ -10,15 +10,22 @@ function todayStr() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: CONFIG.TIMEZONE }).format(new Date());
 }
 
-/** Загрузка всех строк таблицы с постраничным обходом (PostgREST отдаёт максимум 1000 за раз) */
-async function fetchAll(table, select = '*', modify = null) {
+/**
+ * Загрузка всех строк таблицы с постраничным обходом (PostgREST отдаёт
+ * максимум 1000 за раз). orderCol обязателен: без явного ORDER BY порядок
+ * строк между страницами не гарантирован, и при пагинации строки могут
+ * задублироваться или потеряться.
+ */
+async function fetchAll(table, orderCol, select = '*') {
   const PAGE = 1000;
   let from = 0;
   const all = [];
   for (;;) {
-    let q = sb.from(table).select(select).range(from, from + PAGE - 1);
-    if (modify) q = modify(q);
-    const { data, error } = await q;
+    const { data, error } = await sb
+      .from(table)
+      .select(select)
+      .order(orderCol, { ascending: true })
+      .range(from, from + PAGE - 1);
     if (error) throw new Error(`${table}: ${error.message}`);
     all.push(...data);
     if (data.length < PAGE) break;
@@ -30,13 +37,13 @@ async function fetchAll(table, select = '*', modify = null) {
 /** Параллельная загрузка всех исходных данных дашборда */
 async function loadSourceData() {
   const [clients, tax, armsoft, artem, comments, activities, exportMeta] = await Promise.all([
-    fetchAll('ob_accounting_companies'),
-    fetchAll('v_tax_accounts'),
-    fetchAll('v_armsoft_companies'),
-    fetchAll('artem_companies'),
-    fetchAll('accountant_daily_comments'),
+    fetchAll('ob_accounting_companies', 'id'),
+    fetchAll('v_tax_accounts', 'id'),
+    fetchAll('v_armsoft_companies', 'company_id'),
+    fetchAll('artem_companies', 'id'),
+    fetchAll('accountant_daily_comments', 'id'),
     // активности нужны только как признак «по компании была работа» + дата последней работы
-    fetchAll('accounting_activities', 'company_name,activity_date,system_source,accountant_name'),
+    fetchAll('accounting_activities', 'id', 'company_name,activity_date,system_source,accountant_name'),
     sb.from('v_artyom_export_meta').select('*').maybeSingle().then(({ data }) => data),
   ]);
   return { clients, tax, armsoft, artem, comments, activities, exportMeta };
@@ -44,15 +51,17 @@ async function loadSourceData() {
 
 /** Загрузка сохранённых расхождений (весь реестр, вкл. решённые — для карточек динамики) */
 async function loadDeltaItems() {
-  return fetchAll('delta_items', '*', (q) => q.order('id', { ascending: true }));
+  return fetchAll('delta_items', 'id');
 }
 
 async function loadSnapshots() {
-  return fetchAll('daily_delta_snapshots', '*', (q) => q.order('snapshot_date', { ascending: false }));
+  const rows = await fetchAll('daily_delta_snapshots', 'snapshot_date');
+  return rows.reverse(); // новые даты первыми — так их ждут таблица и upsertSnapshot
 }
 
 async function loadTzItems() {
-  return fetchAll('artyom_tz_items', '*', (q) => q.order('id', { ascending: false }));
+  const rows = await fetchAll('artyom_tz_items', 'id');
+  return rows.reverse(); // новые первыми
 }
 
 /* ----------------------------------------------------------------------------
