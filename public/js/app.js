@@ -493,7 +493,7 @@ function renderMeetings() {
   let rows = comments.slice().sort((a, b) => (a.comment_date < b.comment_date ? 1 : -1));
   if (f.date) rows = rows.filter((c) => c.comment_date === f.date);
   if (f.accountant) rows = rows.filter((c) => (c.accountant_name || '') === f.accountant);
-  if (f.search) rows = rows.filter((c) => `${c.company_name} ${c.accountant_name}`.toLowerCase().includes(f.search.toLowerCase()));
+  if (f.search) rows = rows.filter((c) => `${c.company_name || ''} ${c.accountant_name || ''}`.toLowerCase().includes(f.search.toLowerCase()));
 
   // группировка: дата → бухгалтер → компании
   const byDate = new Map();
