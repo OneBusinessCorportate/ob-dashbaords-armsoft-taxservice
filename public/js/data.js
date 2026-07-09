@@ -36,7 +36,7 @@ async function fetchAll(table, orderCol, select = '*') {
 
 /** Параллельная загрузка всех исходных данных дашборда */
 async function loadSourceData() {
-  const [clients, tax, armsoft, artem, comments, activities, exportMeta, exportDates] = await Promise.all([
+  const [clients, tax, armsoft, artem, comments, activities, exportMeta, exportDates, exportVolume] = await Promise.all([
     fetchAll('ob_accounting_companies', 'id'),
     fetchAll('v_tax_accounts', 'id'),
     fetchAll('v_armsoft_companies', 'company_id'),
@@ -47,8 +47,11 @@ async function loadSourceData() {
     sb.from('v_artyom_export_meta').select('*').maybeSingle().then(({ data }) => data),
     // история выгрузок Артёма по датам (для графика «все выгрузки за всё время»)
     fetchAll('v_artyom_export_dates', 'run_date'),
+    // реальный объём выгрузки по всему проекту OB Artyom (все наборы данных,
+    // а не только справочники компаний) — точное число строк по каждому набору
+    fetchAll('v_artyom_export_volume', 'source_table'),
   ]);
-  return { clients, tax, armsoft, artem, comments, activities, exportMeta, exportDates };
+  return { clients, tax, armsoft, artem, comments, activities, exportMeta, exportDates, exportVolume };
 }
 
 /** Загрузка сохранённых расхождений (весь реестр, вкл. решённые — для карточек динамики) */

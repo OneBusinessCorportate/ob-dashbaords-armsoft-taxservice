@@ -39,6 +39,14 @@ function fmtDate(d) {
   const [y, m, day] = String(d).slice(0, 10).split('-');
   return `${day}.${m}.${y}`;
 }
+/** Число с разделителями тысяч (1639460 → «1 639 460») */
+function fmtNum(n) {
+  return Number(n || 0).toLocaleString('ru-RU').replace(/,/g, ' ');
+}
+/** Реальный объём выгрузки Артёма = сумма строк по всем наборам данных проекта */
+function exportVolumeTotal() {
+  return (state.src?.exportVolume || []).reduce((s, r) => s + Number(r.record_count || 0), 0);
+}
 function fmtDateTime(d) {
   if (!d) return '—';
   return new Date(d).toLocaleString('ru-RU', {
@@ -238,6 +246,33 @@ function renderExports() {
        последняя: <b>${fmtDate(dates[dates.length - 1].run_date)}</b></p>`
     : '<p class="empty">Нет данных о выгрузках</p>';
 
+  // --- объём выгрузки по всему проекту OB Artyom (все наборы данных) --------
+  const volume = (state.src.exportVolume || []).slice()
+    .sort((a, b) => Number(b.record_count) - Number(a.record_count));
+  const volTotal = exportVolumeTotal();
+  const catTotal = (cat) => volume.filter((r) => r.category === cat)
+    .reduce((s, r) => s + Number(r.record_count || 0), 0);
+  const volRow = (r) => `<tr>
+    <td>${esc(r.label || r.source_table)}</td>
+    <td><span class="chip ${r.category === 'TaxService' ? 'chip-yes' : 'chip-no'}">${esc(r.category)}</span></td>
+    <td class="nowrap" style="text-align:right">${fmtNum(r.record_count)}</td>
+  </tr>`;
+  const volumeHtml = volume.length ? `
+    <h3 class="block-title">Объём выгрузки по всему проекту OB Artyom
+      <span class="count-pill">${fmtNum(volTotal)} строк</span></h3>
+    <p class="hint">Реальный объём того, что парсеры Артёма загрузили в проект: не только справочники
+      компаний, а все наборы данных (журналы, счета, операции и т.д.).
+      ArmSoft: <b>${fmtNum(catTotal('ArmSoft'))}</b> · TaxService: <b>${fmtNum(catTotal('TaxService'))}</b>
+      по <b>${volume.length}</b> наборам.</p>
+    <div class="table-wrap">
+      <table class="data-table compact">
+        <thead><tr><th>Набор данных</th><th>Источник</th><th style="text-align:right">Строк</th></tr></thead>
+        <tbody>${volume.map(volRow).join('')}
+          <tr><td><b>Итого</b></td><td></td><td class="nowrap" style="text-align:right"><b>${fmtNum(volTotal)}</b></td></tr>
+        </tbody>
+      </table>
+    </div>` : '';
+
   // --- две таблицы сравнения выгрузок между собой -------------------------
   const c = state.computed || {};
   const q = (state.exportsSearch || '').toLowerCase();
@@ -268,6 +303,7 @@ function renderExports() {
     <h3 class="block-title">Выгрузки Артёма по датам</h3>
     <p class="hint">Каждый столбец — дата, когда Артём делал выгрузку; высота — сколько модулей-парсеров отработало в этот день.</p>
     ${chartHtml}
+    ${volumeHtml}
     <div class="filters"><div class="filter-grid"><label class="filter-search">Поиск по таблицам
       <input type="search" id="exports-search" placeholder="Компания или ՀՎՀՀ…" value="${esc(state.exportsSearch || '')}">
     </label></div></div>
@@ -631,8 +667,11 @@ async function recompute(showToast = true) {
     const existing = await loadDeltaItems();
     await syncDeltaItems(state.computed.items, existing);
     state.deltaItems = await loadDeltaItems();
-    // объём выгрузки Артёма = число разобранных им компаний (TaxService + ArmSoft)
-    const exportRecords = (state.src.tax?.length || 0) + (state.src.armsoft?.length || 0);
+    // объём выгрузки Артёма = все строки, разобранные его парсерами по всему
+    // проекту OB Artyom (все наборы данных). Если view объёма недоступен —
+    // откат к прежней оценке по справочникам компаний (TaxService + ArmSoft).
+    const exportRecords = exportVolumeTotal()
+      || ((state.src.tax?.length || 0) + (state.src.armsoft?.length || 0));
     await upsertSnapshot(state.computed.counts, state.src.exportMeta,
       exportRecords, state.snapshots);
     state.snapshots = await loadSnapshots();
@@ -648,8 +687,10 @@ async function recompute(showToast = true) {
 
 function renderExportMeta() {
   const m = state.src.exportMeta;
+  const vol = exportVolumeTotal();
   $('#export-meta-line').textContent = m
-    ? `Выгрузка Артёма: ${fmtDateTime(m.last_export_time)} · ArmSoft: ${m.armsoft_companies_count} комп. · TaxService: ${m.tax_accounts_count} комп.`
+    ? `Выгрузка Артёма: ${fmtDateTime(m.last_export_time)} · ArmSoft: ${m.armsoft_companies_count} комп. · `
+      + `TaxService: ${m.tax_accounts_count} комп.${vol ? ` · всего строк: ${fmtNum(vol)}` : ''}`
     : 'Нет метаданных выгрузки';
 }
 
