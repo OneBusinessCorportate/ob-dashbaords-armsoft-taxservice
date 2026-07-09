@@ -260,6 +260,41 @@ function computeDelta(src) {
   items.push(...deduped);
 
   // ==========================================================================
+  // Сравнение двух выгрузок Артёма между собой (по запросу):
+  //   - есть в TaxService, но нет в ArmSoft
+  //   - есть в ArmSoft, но нет в TaxService
+  // Совпадение — точное (по нормализованному названию; ՀՎՀՀ у ArmSoft нет).
+  // «≈» отмечает возможное неточное (fuzzy) совпадение — оно НЕ исключает строку.
+  // ==========================================================================
+  const crossTaxNotArm = [];
+  for (const t of tax) {
+    const name = t.client_name_ru || t.org_name_hy || ('ՀՎՀՀ ' + t.tin);
+    const m = findMatch(armIndex, { hvhh: null, names: [t.client_name_ru, t.org_name_hy] });
+    if (m.found && m.quality !== 'fuzzy') continue;
+    crossTaxNotArm.push({
+      company_name: name,
+      hvhh: t.tin || null,
+      match_quality: m.found ? 'fuzzy' : 'none',
+      fuzzy_hint: m.found ? (m.entity.caption || m.entity.name) : null,
+    });
+  }
+
+  const crossArmNotTax = [];
+  for (const a of armsoft) {
+    const name = a.caption || a.name || ('ArmSoft #' + a.company_id);
+    const m = findMatch(taxIndex, { hvhh: null, names: [a.caption, a.name] });
+    if (m.found && m.quality !== 'fuzzy') continue;
+    crossArmNotTax.push({
+      company_name: name,
+      hvhh: null,
+      match_quality: m.found ? 'fuzzy' : 'none',
+      fuzzy_hint: m.found ? (m.entity.client_name_ru || m.entity.org_name_hy) : null,
+    });
+  }
+  crossTaxNotArm.sort((x, y) => x.company_name.localeCompare(y.company_name, 'ru'));
+  crossArmNotTax.sort((x, y) => x.company_name.localeCompare(y.company_name, 'ru'));
+
+  // ==========================================================================
   // Сводные показатели для дневного снимка
   // ==========================================================================
   const nonJunk = clientCtxs.filter((c) => !RULES.isJunkName(c.client.company_name));
@@ -282,5 +317,5 @@ function computeDelta(src) {
     total_delta: items.filter((it) => totalDeltaTypes.has(it.issue_type)).length,
   };
 
-  return { items, counts, clientCtxs, activityByName, mentionByName };
+  return { items, counts, clientCtxs, activityByName, mentionByName, crossTaxNotArm, crossArmNotTax };
 }

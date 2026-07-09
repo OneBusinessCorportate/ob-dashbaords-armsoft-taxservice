@@ -36,11 +36,11 @@
     <!-- Правила проверки (TaxService и ArmSoft — раздельно) -->
     <div class="rules-box">
       <div class="rule">
-        <span class="rule-title">🏛 Правило TaxService</span>
+        <span class="rule-title">▸ Правило TaxService</span>
         <span class="rule-text">Активный клиент обязан быть в налоговом кабинете (TaxService). Дельта = активные клиенты OB, которых нет в налоговой выгрузке Артёма. ՀՎՀՀ показывается там, где известен, и доступен как фильтр «только с ՀՎՀՀ».</span>
       </div>
       <div class="rule">
-        <span class="rule-title">💼 Правило ArmSoft</span>
+        <span class="rule-title">▸ Правило ArmSoft</span>
         <span class="rule-text">Клиент обязан быть в ArmSoft, если у него в реестре заполнена ArmSoft-привязка (<code>armsoft_company_id</code> — признак «заведена учётка ArmSoft»). Дельта = такие клиенты, которых нет в ArmSoft-выгрузке. Правило настраивается отдельно в <code>config.js → RULES.expectedInArmsoft</code>.</span>
       </div>
     </div>
@@ -73,6 +73,13 @@
     <div class="cards-list" id="snapshot-cards"></div>
   </section>
 
+  <!-- ======================= ВЫГРУЗКИ ======================= -->
+  <section class="view" id="view-exports" hidden>
+    <h2 class="view-title">Выгрузки Артёма</h2>
+    <p class="hint">Когда были выгрузки за всё время и что в них есть: сравнение TaxService и ArmSoft между собой.</p>
+    <div id="exports-body"></div>
+  </section>
+
   <!-- ======================= 2. ДЕЛЬТА ======================= -->
   <section class="view" id="view-delta" hidden>
     <h2 class="view-title">Дельта / Расхождения</h2>
@@ -95,11 +102,11 @@
     <h2 class="view-title">Для Артёма / ТЗ Артёму</h2>
     <p class="hint">Сюда автоматически попадают расхождения со статусом «Проблема выгрузки Артёма».</p>
     <div class="toolbar">
-      <button class="btn btn-primary" id="btn-generate-message">✉ Сформировать сообщение Артёму</button>
+      <button class="btn btn-primary" id="btn-generate-message">Сформировать сообщение Артёму</button>
     </div>
     <div id="tz-message-box" class="message-box" hidden>
       <textarea id="tz-message" rows="14" readonly></textarea>
-      <button class="btn btn-primary" id="btn-copy-message">📋 Скопировать</button>
+      <button class="btn btn-primary" id="btn-copy-message">Скопировать</button>
     </div>
     <div class="list" id="tz-list"></div>
   </section>

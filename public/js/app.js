@@ -13,6 +13,7 @@ const state = {
   view: 'summary',
   deltaShown: 100,    // пагинация списков
   reviewShown: 50,
+  exportsSearch: '',
   filters: {
     date: '', accountant: '', system: '', issueType: '', confirmation: '',
     priority: '', activeOnly: false, hvhhOnly: false, unresolvedOnly: true,
@@ -48,11 +49,12 @@ function fmtDateTime(d) {
 
 /* ------------------------------ Навигация -------------------------------- */
 const NAV = [
-  { id: 'summary', label: 'Сводка', icon: '📊' },
+  { id: 'summary', label: 'Сводка', icon: '▤' },
+  { id: 'exports', label: 'Выгрузки', icon: '↓' },
   { id: 'delta', label: 'Дельта', icon: 'Δ' },
-  { id: 'review', label: 'Эмилия', icon: '✅' },
-  { id: 'artyom', label: 'ТЗ Артёму', icon: '📝' },
-  { id: 'meetings', label: 'Встречи', icon: '🗣' },
+  { id: 'review', label: 'Эмилия', icon: '✓' },
+  { id: 'artyom', label: 'ТЗ Артёму', icon: '✎' },
+  { id: 'meetings', label: 'Встречи', icon: '☰' },
 ];
 
 function renderNav() {
@@ -124,13 +126,13 @@ function renderSummaryCards() {
 
   const cards = [
     { label: 'Дельта сегодня (нет в выгрузке)', value: forward.length, color: forward.length ? 'red' : 'green', icon: 'Δ', drill: () => showDrill('Активные клиенты OB, которых нет в выгрузке Артёма', forward) },
-    { label: 'Нет в TaxService', value: missTax.length, color: 'red', icon: '🏛', drill: () => showDrill(ISSUE_TYPES.missing_taxservice.label, missTax) },
-    { label: 'Нет в ArmSoft', value: missArm.length, color: 'red', icon: '💼', drill: () => showDrill(ISSUE_TYPES.missing_armsoft.label, missArm) },
-    { label: 'Артём выгрузил, нет в реестре OB', value: reverse.length, color: 'yellow', icon: '📥', drill: () => showDrill('Есть в выгрузке Артёма, но нет в реестре OB', reverse) },
-    { label: 'Проблемы выгрузки Артёма', value: open.filter((r) => r.confirmation_status === 'confirmed_artyom_export_problem').length, color: 'red', icon: '📤', drill: () => showDrill('Подтверждённые проблемы выгрузки', open.filter((r) => r.confirmation_status === 'confirmed_artyom_export_problem')) },
-    { label: 'Ждут проверки Эмилии', value: open.filter((r) => r.confirmation_status === 'not_checked').length, color: 'yellow', icon: '⏳', drill: () => showDrill('Не проверено', open.filter((r) => r.confirmation_status === 'not_checked')) },
-    { label: 'Исправлено со вчера', value: state.deltaItems.filter((r) => r.resolved_at && r.resolved_at.slice(0, 10) >= yesterdayIso).length, color: 'green', icon: '✔', drill: () => showDrill('Исправлено со вчера', state.deltaItems.filter((r) => r.resolved_at && r.resolved_at.slice(0, 10) >= yesterdayIso)) },
-    { label: 'Новые за сегодня', value: state.deltaItems.filter((r) => r.snapshot_date === today).length, color: 'red', icon: '🆕', drill: () => showDrill('Новые за сегодня', state.deltaItems.filter((r) => r.snapshot_date === today)) },
+    { label: 'Нет в TaxService', value: missTax.length, color: 'red', icon: 'T', drill: () => showDrill(ISSUE_TYPES.missing_taxservice.label, missTax) },
+    { label: 'Нет в ArmSoft', value: missArm.length, color: 'red', icon: 'A', drill: () => showDrill(ISSUE_TYPES.missing_armsoft.label, missArm) },
+    { label: 'Артём выгрузил, нет в реестре OB', value: reverse.length, color: 'yellow', icon: '⇄', drill: () => showDrill('Есть в выгрузке Артёма, но нет в реестре OB', reverse) },
+    { label: 'Проблемы выгрузки Артёма', value: open.filter((r) => r.confirmation_status === 'confirmed_artyom_export_problem').length, color: 'red', icon: '!', drill: () => showDrill('Подтверждённые проблемы выгрузки', open.filter((r) => r.confirmation_status === 'confirmed_artyom_export_problem')) },
+    { label: 'Ждут проверки Эмилии', value: open.filter((r) => r.confirmation_status === 'not_checked').length, color: 'yellow', icon: '?', drill: () => showDrill('Не проверено', open.filter((r) => r.confirmation_status === 'not_checked')) },
+    { label: 'Исправлено со вчера', value: state.deltaItems.filter((r) => r.resolved_at && r.resolved_at.slice(0, 10) >= yesterdayIso).length, color: 'green', icon: '✓', drill: () => showDrill('Исправлено со вчера', state.deltaItems.filter((r) => r.resolved_at && r.resolved_at.slice(0, 10) >= yesterdayIso)) },
+    { label: 'Новые за сегодня', value: state.deltaItems.filter((r) => r.snapshot_date === today).length, color: 'red', icon: '+', drill: () => showDrill('Новые за сегодня', state.deltaItems.filter((r) => r.snapshot_date === today)) },
   ];
 
   $('#summary-cards').innerHTML = cards.map((c, i) => `
@@ -213,6 +215,76 @@ function renderSnapshotTable() {
   }));
 }
 
+/* ----------------------------- Выгрузки ----------------------------------- */
+function renderExports() {
+  if (!state.src) return;
+  const dates = state.src.exportDates || [];
+
+  // --- график: даты выгрузок Артёма и их объём (сколько модулей отработало) --
+  const max = Math.max(1, ...dates.map((d) => d.modules_run || 0));
+  const bars = dates.map((d) => {
+    const h = Math.round(((d.modules_run || 0) / max) * 100);
+    return `<div class="bar-col" title="${fmtDate(d.run_date)} — модулей: ${d.modules_run}">
+      <span class="bar-val">${d.modules_run}</span>
+      <span class="bar" style="height:${Math.max(h, 4)}%"></span>
+      <span class="bar-label">${fmtDate(d.run_date).slice(0, 5)}</span>
+    </div>`;
+  }).join('');
+
+  const total = dates.reduce((s, d) => s + (d.modules_run || 0), 0);
+  const chartHtml = dates.length
+    ? `<div class="chart">${bars}</div>
+       <p class="muted">Всего выгрузок (дат): <b>${dates.length}</b> · всего запусков модулей: <b>${total}</b> ·
+       последняя: <b>${fmtDate(dates[dates.length - 1].run_date)}</b></p>`
+    : '<p class="empty">Нет данных о выгрузках</p>';
+
+  // --- две таблицы сравнения выгрузок между собой -------------------------
+  const c = state.computed || {};
+  const q = (state.exportsSearch || '').toLowerCase();
+  const flt = (rows) => !q ? rows : rows.filter((r) =>
+    `${r.company_name} ${r.hvhh || ''}`.toLowerCase().includes(q));
+  const taxNotArm = flt(c.crossTaxNotArm || []);
+  const armNotTax = flt(c.crossArmNotTax || []);
+
+  const rowHtml = (r) => `<tr>
+    <td>${esc(r.company_name)}${r.match_quality === 'fuzzy' ? ' <span class="chip chip-fuzzy">≈ ' + esc(r.fuzzy_hint || '') + '</span>' : ''}</td>
+    <td class="nowrap">${esc(r.hvhh) || '—'}</td>
+  </tr>`;
+
+  const tableBlock = (title, note, rows, limit) => `
+    <div class="cross-block">
+      <h3 class="block-title">${title} <span class="count-pill">${rows.length}</span></h3>
+      <p class="hint">${note}</p>
+      <div class="table-wrap">
+        <table class="data-table compact">
+          <thead><tr><th>Компания</th><th>ՀՎՀՀ</th></tr></thead>
+          <tbody>${rows.slice(0, limit).map(rowHtml).join('') || '<tr><td colspan="2" class="empty">Нет расхождений</td></tr>'}</tbody>
+        </table>
+      </div>
+      ${rows.length > limit ? `<p class="muted">Показаны первые ${limit} из ${rows.length}. Используйте поиск.</p>` : ''}
+    </div>`;
+
+  $('#exports-body').innerHTML = `
+    <h3 class="block-title">Выгрузки Артёма по датам</h3>
+    <p class="hint">Каждый столбец — дата, когда Артём делал выгрузку; высота — сколько модулей-парсеров отработало в этот день.</p>
+    ${chartHtml}
+    <div class="filters"><div class="filter-grid"><label class="filter-search">Поиск по таблицам
+      <input type="search" id="exports-search" placeholder="Компания или ՀՎՀՀ…" value="${esc(state.exportsSearch || '')}">
+    </label></div></div>
+    ${tableBlock('Есть в TaxService, нет в ArmSoft',
+      'Компании из налоговой выгрузки, которых нет в ArmSoft-выгрузке Артёма.', taxNotArm, 200)}
+    ${tableBlock('Есть в ArmSoft, нет в TaxService',
+      'Компании из ArmSoft-выгрузки, которых нет в налоговой выгрузке Артёма.', armNotTax, 200)}`;
+
+  const s = $('#exports-search');
+  if (s) s.addEventListener('input', () => {
+    state.exportsSearch = s.value;
+    const pos = s.selectionStart;
+    renderExports();
+    const s2 = $('#exports-search'); if (s2) { s2.focus(); s2.setSelectionRange(pos, pos); }
+  });
+}
+
 /* -------------------------- Строка компании ------------------------------ */
 function chips(r) {
   const chip = (ok, label) =>
@@ -247,7 +319,7 @@ function itemCard(r, withReview = false) {
       ${r.resolved_at ? ` · <span class="green">Закрыто ${fmtDate(r.resolved_at)}</span>` : ''}
       · Источник: ${esc(r.source_table)}
     </div>
-    ${r.comment ? `<div class="item-comment">💬 ${esc(r.comment)}${r.responsible_person ? ` — <b>${esc(r.responsible_person)}</b>` : ''}</div>` : ''}
+    ${r.comment ? `<div class="item-comment">» ${esc(r.comment)}${r.responsible_person ? ` — <b>${esc(r.responsible_person)}</b>` : ''}</div>` : ''}
     ${withReview ? reviewControls(r) : ''}
   </div>`;
 }
@@ -325,7 +397,7 @@ function renderDeltaList() {
   const shown = rows.slice(0, state.deltaShown);
   $('#delta-list').innerHTML =
     `<p class="muted">Найдено расхождений: <b>${rows.length}</b></p>` +
-    (shown.map((r) => itemCard(r, false)).join('') || '<p class="empty">Нет расхождений по выбранным фильтрам 🎉</p>');
+    (shown.map((r) => itemCard(r, false)).join('') || '<p class="empty">Нет расхождений по выбранным фильтрам</p>');
   $('#delta-more').hidden = rows.length <= state.deltaShown;
 }
 
@@ -413,7 +485,7 @@ function renderTz() {
         <span>Ожидается в: <b>${esc(t.expected_source) || '—'}</b></span>
         <span>Фактически есть: <b>${esc(t.actual_source) || '—'}</b></span>
       </div>
-      ${t.comment ? `<div class="item-comment">💬 ${esc(t.comment)}</div>` : ''}
+      ${t.comment ? `<div class="item-comment">» ${esc(t.comment)}</div>` : ''}
       <div class="review-fields">
         ${Object.entries(TZ_STATUSES).map(([k, v]) => `
           <button class="btn btn-status ${t.status === k ? 'btn-status-active btn-status-' + v.color : ''}"
@@ -461,7 +533,7 @@ function generateArtyomMessage() {
       if (t.issue_description) parts.push(t.issue_description);
       if (t.actual_source) parts.push(`сейчас есть только в: ${t.actual_source}`);
       if (t.comment) parts.push(`комментарий: ${t.comment}`);
-      if (t.priority === 'high') parts.push('⚠ высокий приоритет');
+      if (t.priority === 'high') parts.push('(!) высокий приоритет');
       lines.push('   ' + parts.join(' · '));
     }
     lines.push('');
@@ -526,7 +598,7 @@ function renderMeetings() {
                 ${chip(tm, 'TaxService')}${chip(arm, 'ArmSoft')}
               </div>
               <div class="muted">${esc(c.comment || '')}</div>
-              ${c.unaccounted_work ? `<div class="item-comment">⚠ Не отражено: ${esc(c.unaccounted_work)}</div>` : ''}
+              ${c.unaccounted_work ? `<div class="item-comment">(!) Не отражено: ${esc(c.unaccounted_work)}</div>` : ''}
             </div>`;
           }).join('')}
         </div>`;
@@ -585,6 +657,7 @@ function renderAll() {
   renderExportMeta();
   renderSummaryCards();
   renderSnapshotTable();
+  renderExports();
   renderDeltaList();
   renderReviewList();
   renderTz();
@@ -626,6 +699,10 @@ async function init() {
       taxIndex: buildIndex(src.tax, ['client_name_ru', 'org_name_hy'], 'tin'),
       armIndex: buildIndex(src.armsoft, ['caption', 'name'], null),
     };
+
+    // расчёт в памяти (без записи в БД) — чтобы графики/сравнения выгрузок
+    // и счётчики были доступны сразу, даже без ручного пересчёта
+    state.computed = computeDelta(state.src);
 
     // фильтры рисуем после загрузки списка бухгалтеров
     $('#filters-delta').innerHTML = filtersHtml('delta');

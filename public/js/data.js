@@ -36,7 +36,7 @@ async function fetchAll(table, orderCol, select = '*') {
 
 /** Параллельная загрузка всех исходных данных дашборда */
 async function loadSourceData() {
-  const [clients, tax, armsoft, artem, comments, activities, exportMeta] = await Promise.all([
+  const [clients, tax, armsoft, artem, comments, activities, exportMeta, exportDates] = await Promise.all([
     fetchAll('ob_accounting_companies', 'id'),
     fetchAll('v_tax_accounts', 'id'),
     fetchAll('v_armsoft_companies', 'company_id'),
@@ -45,8 +45,10 @@ async function loadSourceData() {
     // активности нужны только как признак «по компании была работа» + дата последней работы
     fetchAll('accounting_activities', 'id', 'company_name,activity_date,system_source,accountant_name'),
     sb.from('v_artyom_export_meta').select('*').maybeSingle().then(({ data }) => data),
+    // история выгрузок Артёма по датам (для графика «все выгрузки за всё время»)
+    fetchAll('v_artyom_export_dates', 'run_date'),
   ]);
-  return { clients, tax, armsoft, artem, comments, activities, exportMeta };
+  return { clients, tax, armsoft, artem, comments, activities, exportMeta, exportDates };
 }
 
 /** Загрузка сохранённых расхождений (весь реестр, вкл. решённые — для карточек динамики) */
