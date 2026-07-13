@@ -144,6 +144,31 @@ body.modal-open { overflow: hidden; }
 .snap-grid span { color: var(--text-2); }
 .snap-grid b { text-align: right; }
 
+/* ------------------------- Тултипы на заголовках -------------------------- */
+/* Признак «есть пояснение»: пунктирное подчёркивание + курсор help + значок ⓘ */
+[data-tip] { cursor: help; }
+.data-table th[data-tip] {
+  text-decoration: underline dotted var(--text-3);
+  text-underline-offset: 3px;
+}
+.data-table th[data-tip]::after,
+.snap-grid span[data-tip]::after {
+  content: "ⓘ"; font-size: 0.85em; opacity: 0.55; margin-left: 3px;
+}
+.snap-grid span[data-tip] {
+  text-decoration: underline dotted var(--text-3);
+  text-underline-offset: 2px;
+}
+/* Плавающая подсказка (position: fixed → не обрезается прокруткой таблицы) */
+.th-tooltip {
+  position: fixed; z-index: 80; max-width: 300px;
+  background: var(--text); color: #fff;
+  font-size: 12px; font-weight: 400; line-height: 1.4; text-align: left;
+  padding: 9px 12px; border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
+  pointer-events: none; white-space: normal;
+}
+
 /* ------------------------------- Бейджи ---------------------------------- */
 .badge {
   display: inline-flex; align-items: center; gap: 4px;

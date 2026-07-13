@@ -203,15 +203,15 @@ function renderSnapshotTable() {
         <span class="badge badge-${t.cls}">${t.icon} ${t.text}${s.delta_change != null ? ` (${s.delta_change > 0 ? '+' : ''}${s.delta_change})` : ''}</span>
       </div>
       <div class="snap-grid">
-        <span>Активных клиентов</span><b>${s.total_active_clients}</b>
-        <span>С ՀՎՀՀ</span><b>${s.active_with_hvhh}</b>
-        <span>TaxService: найдено/ожид.</span><b>${s.found_taxservice}/${s.expected_taxservice}</b>
-        <span>Нет в TaxService</span><b><button class="num-link num-bad" data-date="${s.snapshot_date}" data-type="missing_taxservice">${s.missing_taxservice}</button></b>
-        <span>ArmSoft: найдено/ожид.</span><b>${s.found_armsoft}/${s.expected_armsoft}</b>
-        <span>Нет в ArmSoft</span><b><button class="num-link num-bad" data-date="${s.snapshot_date}" data-type="missing_armsoft">${s.missing_armsoft}</button></b>
-        <span>Всего дельта</span><b><button class="num-link num-bad" data-date="${s.snapshot_date}" data-type="">${s.total_delta}</button></b>
-        <span>Выгрузка Артёма</span><b>${fmtDateTime(s.artyom_export_time)}</b>
-        <span>Записей в выгрузке</span><b>${s.artyom_export_records ?? '—'}</b>
+        <span data-tip="Активные клиенты в реестре OneBusiness (ob_accounting_companies, is_active = да).">Активных клиентов</span><b>${s.total_active_clients}</b>
+        <span data-tip="Сколько из активных клиентов имеют известный ИНН/ՀՎՀՀ. ИНН берётся из TaxService (v_tax_accounts.tin) — в реестре OB своего поля ИНН нет.">С ՀՎՀՀ</span><b>${s.active_with_hvhh}</b>
+        <span data-tip="Найдено / ожидается в TaxService. Ожидается = активные клиенты; найдено = реально есть в налоговой выгрузке Артёма (v_tax_accounts).">TaxService: найдено/ожид.</span><b>${s.found_taxservice}/${s.expected_taxservice}</b>
+        <span data-tip="Ожидаются в TaxService, но не найдены. Нажмите число — список компаний.">Нет в TaxService</span><b><button class="num-link num-bad" data-date="${s.snapshot_date}" data-type="missing_taxservice">${s.missing_taxservice}</button></b>
+        <span data-tip="Найдено / ожидается в ArmSoft. Ожидается = активны и заполнена ArmSoft-привязка (armsoft_company_id); найдено = есть в ArmSoft-выгрузке (v_armsoft_companies).">ArmSoft: найдено/ожид.</span><b>${s.found_armsoft}/${s.expected_armsoft}</b>
+        <span data-tip="Ожидаются в ArmSoft, но не найдены. Нажмите число — список компаний.">Нет в ArmSoft</span><b><button class="num-link num-bad" data-date="${s.snapshot_date}" data-type="missing_armsoft">${s.missing_armsoft}</button></b>
+        <span data-tip="Общий разрыв покрытия = «Нет в TaxService» + «Нет в ArmSoft». Должен уменьшаться после каждой выгрузки Артёма.">Всего дельта</span><b><button class="num-link num-bad" data-date="${s.snapshot_date}" data-type="">${s.total_delta}</button></b>
+        <span data-tip="Дата и время последнего прогона парсеров Артёма (v_artyom_export_meta.last_export_time).">Выгрузка Артёма</span><b>${fmtDateTime(s.artyom_export_time)}</b>
+        <span data-tip="Сколько всего строк разобрала выгрузка Артёма по всему проекту OB Artyom (сумма по v_artyom_export_volume).">Записей в выгрузке</span><b>${s.artyom_export_records ?? '—'}</b>
       </div>
     </div>`;
   }).join('');
@@ -266,7 +266,11 @@ function renderExports() {
       по <b>${volume.length}</b> наборам.</p>
     <div class="table-wrap">
       <table class="data-table compact">
-        <thead><tr><th>Набор данных</th><th>Источник</th><th style="text-align:right">Строк</th></tr></thead>
+        <thead><tr>
+          <th data-tip="Таблица в проекте OB Artyom (armsoft_db), куда парсеры Артёма сложили данные.">Набор данных</th>
+          <th data-tip="Из какой системы данные: TaxService (налоговый кабинет) или ArmSoft.">Источник</th>
+          <th style="text-align:right" data-tip="Точное число строк в этом наборе данных.">Строк</th>
+        </tr></thead>
         <tbody>${volume.map(volRow).join('')}
           <tr><td><b>Итого</b></td><td></td><td class="nowrap" style="text-align:right"><b>${fmtNum(volTotal)}</b></td></tr>
         </tbody>
@@ -292,7 +296,10 @@ function renderExports() {
       <p class="hint">${note}</p>
       <div class="table-wrap">
         <table class="data-table compact">
-          <thead><tr><th>Компания</th><th>ՀՎՀՀ</th></tr></thead>
+          <thead><tr>
+            <th data-tip="Название компании из выгрузки Артёма. Значок ≈ — возможное неточное совпадение по названию.">Компания</th>
+            <th data-tip="ИНН/ՀՎՀՀ компании. Есть только у TaxService — ArmSoft ИНН не отдаёт, поэтому для ArmSoft-строк здесь прочерк.">ՀՎՀՀ</th>
+          </tr></thead>
           <tbody>${rows.slice(0, limit).map(rowHtml).join('') || '<tr><td colspan="2" class="empty">Нет расхождений</td></tr>'}</tbody>
         </table>
       </div>
@@ -644,6 +651,64 @@ function renderMeetings() {
   $('#meetings-list').innerHTML = html || '<p class="empty">Нет данных встреч за выбранный период</p>';
 }
 
+/* ------------------------- Тултипы на заголовках -------------------------- */
+/**
+ * Поясняющие подсказки при наведении (десктоп) или тапе (мобильные) на
+ * заголовки таблиц и подписи-карточек: откуда значение и что означает.
+ * Один плавающий элемент (position: fixed) — не обрезается прокруткой таблицы.
+ * Делегирование событий → работает и для заголовков, отрисованных динамически.
+ */
+function initHeaderTooltips() {
+  let tip = $('#th-tooltip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = 'th-tooltip';
+    tip.className = 'th-tooltip';
+    tip.hidden = true;
+    document.body.appendChild(tip);
+  }
+  let current = null;
+
+  const place = (el) => {
+    const r = el.getBoundingClientRect();
+    tip.style.maxWidth = Math.min(300, window.innerWidth - 20) + 'px';
+    const tr = tip.getBoundingClientRect();
+    let top = r.top - tr.height - 8;
+    const below = top < 8;
+    if (below) top = r.bottom + 8;
+    let left = r.left + r.width / 2 - tr.width / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - tr.width - 8));
+    tip.style.top = Math.round(top) + 'px';
+    tip.style.left = Math.round(left) + 'px';
+    tip.classList.toggle('tip-below', below);
+  };
+  const show = (el) => {
+    const text = el.getAttribute('data-tip');
+    if (!text) return;
+    current = el;
+    tip.textContent = text;
+    tip.hidden = false;
+    place(el);
+  };
+  const hide = () => { current = null; tip.hidden = true; };
+
+  document.addEventListener('mouseover', (e) => {
+    const el = e.target.closest('[data-tip]');
+    if (el) show(el);
+  });
+  document.addEventListener('mouseout', (e) => {
+    if (current && e.target.closest('[data-tip]') === current) hide();
+  });
+  // мобильные / тач: тап по заголовку показывает подсказку, тап мимо — прячет
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-tip]');
+    if (el) { el === current ? hide() : show(el); }
+    else if (current) hide();
+  });
+  window.addEventListener('scroll', hide, true);
+  window.addEventListener('resize', hide);
+}
+
 /* --------------------------- Drill-down модал ----------------------------- */
 function showDrill(title, rows) {
   $('#modal-title').textContent = `${title} (${rows.length})`;
@@ -707,6 +772,7 @@ function renderAll() {
 
 async function init() {
   renderNav();
+  initHeaderTooltips();
   switchView('summary');
 
   $('#btn-recompute').addEventListener('click', () => recompute(true));
