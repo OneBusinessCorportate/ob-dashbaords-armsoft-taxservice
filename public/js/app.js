@@ -10,6 +10,11 @@ const state = {
   deltaItems: [],     // строки delta_items из БД (источник истины для списков)
   snapshots: [],
   tzItems: [],
+  taskSync: null,     // результат computeTaskSync (in-memory)
+  taskSyncItems: [],  // строки accountant_task_sync из БД
+  syncProblems: [],   // строки sync_problems из БД
+  exportStatus: null, // строка v_artyom_export_status (статус графика выгрузки)
+  syncAccountant: '', // фильтр раздела «Синхронизация» по бухгалтеру
   view: 'summary',
   deltaShown: 100,    // пагинация списков
   reviewShown: 50,
@@ -59,6 +64,7 @@ function fmtDateTime(d) {
 const NAV = [
   { id: 'summary', label: 'Сводка', icon: '▤' },
   { id: 'exports', label: 'Выгрузки', icon: '↓' },
+  { id: 'sync', label: 'Синхр.', icon: '⇅' },
   { id: 'delta', label: 'Дельта', icon: 'Δ' },
   { id: 'review', label: 'Эмилия', icon: '✓' },
   { id: 'artyom', label: 'ТЗ Артёму', icon: '✎' },
@@ -326,6 +332,198 @@ function renderExports() {
     renderExports();
     const s2 = $('#exports-search'); if (s2) { s2.focus(); s2.setSelectionRange(pos, pos); }
   });
+}
+
+/* ------------------------- Синхронизация задач ---------------------------- */
+function scheduleBannerHtml() {
+  const st = state.exportStatus;
+  const key = st?.status || 'no_data';
+  const meta = TASK_SYNC.scheduleStatuses[key] || TASK_SYNC.scheduleStatuses.no_data;
+  const late = st && st.hours_late ? ` · опоздание: <b>${st.hours_late} ч</b>` : '';
+  return `<div class="sched-banner sched-${meta.color}">
+    <span class="sched-emoji">${meta.emoji}</span>
+    <div class="sched-text">
+      <strong>График выгрузки Артёма: ${meta.label}</strong>
+      <span class="muted">
+        Последняя выгрузка: <b>${fmtDateTime(st?.last_run)}</b> ·
+        ожидалась к: <b>${fmtDateTime(st?.expected_by)}</b>${late}
+      </span>
+    </div>
+  </div>`;
+}
+
+function renderSync() {
+  const body = $('#sync-body');
+  if (!body) return;
+  if (!state.taskSync) { body.innerHTML = '<p class="empty">Нажмите «Пересчитать», чтобы выполнить сверку.</p>'; return; }
+  const ts = state.taskSync;
+  const rep = ts.report;
+
+  // --- отчёт по процессу: 2 ключевых показателя ---
+  const expMeta = TASK_SYNC.scheduleStatuses[rep.exported] || TASK_SYNC.scheduleStatuses.no_data;
+  const exportedGood = rep.exported === 'exported';
+  const matchRate = rep.dataMatchRate;
+  const matchColor = matchRate == null ? 'gray' : (matchRate >= 90 ? 'green' : matchRate >= 70 ? 'yellow' : 'red');
+
+  const reportHtml = `
+    <h3 class="block-title">Отчёт по процессу взаимодействия с Артёмом</h3>
+    <div class="report-tiles">
+      <div class="report-tile tile-${exportedGood ? 'green' : expMeta.color}">
+        <span class="tile-label">1. Выгрузил Артём?</span>
+        <span class="tile-value">${expMeta.emoji} ${expMeta.label}</span>
+        <span class="tile-sub">Проверка графика выгрузки</span>
+      </div>
+      <div class="report-tile tile-${matchColor}">
+        <span class="tile-label">2. Данные соответствуют действительности?</span>
+        <span class="tile-value">${matchRate == null ? '—' : matchRate + '%'}</span>
+        <span class="tile-sub">${rep.inExportTotal} из ${rep.expectedTotal} задач отражены в выгрузке</span>
+      </div>
+    </div>
+    <div class="report-stats muted">
+      Не отражено в выгрузке: <b class="${rep.missingTotal ? 'red' : 'green'}">${rep.missingTotal}</b> ·
+      Артём не видит (по правилам): <b>${rep.notExpectedTotal}</b> ·
+      Бухгалтеров: <b>${rep.accountants}</b> ·
+      Проблем: <b class="${rep.problemsCount ? 'red' : 'green'}">${rep.problemsCount}</b> ·
+      Окно сверки: ${fmtDate(ts.windowStart)} — ${fmtDate(ts.referenceDate)}
+    </div>`;
+
+  // --- фильтр по бухгалтеру ---
+  const accs = ts.byAccountant.map((a) => a.accountant);
+  const accFilter = `<div class="filters"><div class="filter-grid"><label>Бухгалтер
+    <select id="sync-acc">
+      <option value="">Все (${accs.length})</option>
+      ${accs.map((a) => `<option ${state.syncAccountant === a ? 'selected' : ''}>${esc(a)}</option>`).join('')}
+    </select></label></div></div>`;
+
+  // --- карта DB-строк для самопроверки (по task_key) ---
+  const byKey = new Map(state.taskSyncItems.map((r) => [r.task_key, r]));
+
+  // --- по каждому бухгалтеру: задачи, НЕ отражённые в выгрузке ---
+  const accs2 = state.syncAccountant
+    ? ts.byAccountant.filter((a) => a.accountant === state.syncAccountant)
+    : ts.byAccountant;
+
+  const accCards = accs2.map((a) => {
+    const rate = a.matchRate == null ? '—' : a.matchRate + '%';
+    const rateColor = a.matchRate == null ? 'gray' : (a.matchRate >= 90 ? 'green' : a.matchRate >= 70 ? 'yellow' : 'red');
+    const missing = a.missingTasks.map((t) => {
+      const db = byKey.get(t.task_key);
+      const sc = SELF_CHECK_STATUSES[db?.accountant_response_status || 'pending'];
+      const sys = t.system_source === 'taxservice' ? 'TaxService' : 'ArmSoft';
+      return `<div class="sync-task" data-key="${esc(t.task_key)}">
+        <div class="sync-task-main">
+          <b>${esc(t.company_name)}</b>
+          <span class="chip chip-no">✗ нет в ${sys}</span>
+          <span class="muted">${esc(t.task_type_label)}: ${esc(t.work_summary.split(': ')[1] || '')}</span>
+          ${db ? `<span class="badge badge-${sc.color}">${sc.label}</span>` : ''}
+        </div>
+        ${db ? `<div class="sync-selfcheck">
+          <select data-selfcheck="${db.id}">
+            ${Object.entries(SELF_CHECK_STATUSES).map(([k, v]) =>
+              `<option value="${k}" ${db.accountant_response_status === k ? 'selected' : ''}>${v.label}</option>`).join('')}
+          </select>
+          <input type="text" placeholder="Комментарий бухгалтера…" value="${esc(db.accountant_response || '')}" data-selfcheck-note="${db.id}">
+          <button class="btn btn-sm" data-selfcheck-save="${db.id}">OK</button>
+        </div>` : ''}
+      </div>`;
+    }).join('') || '<p class="muted" style="padding:0 12px 12px">Все учтённые задачи отражены в выгрузке ✓</p>';
+
+    return `<div class="item-card">
+      <div class="item-head">
+        <strong>${esc(a.accountant)}</strong>
+        <span class="badge badge-${a.missing ? 'red' : 'green'}">${a.missing} не в выгрузке</span>
+      </div>
+      <div class="item-meta">
+        <span>Всего задач: <b>${a.total}</b></span>
+        <span>В выгрузке: <b class="green">${a.inExport}</b></span>
+        <span>Артём не видит: <b>${a.notExpected}</b></span>
+        <span>Соответствие: <b class="${rateColor}">${rate}</b></span>
+      </div>
+      ${missing}
+    </div>`;
+  }).join('') || '<p class="empty">Нет задач в окне сверки</p>';
+
+  // --- список проблем (из БД, с редактируемым статусом; fallback — computed) ---
+  const problems = state.syncProblems.length ? state.syncProblems : ts.problems;
+  const fromDb = state.syncProblems.length > 0;
+  const probRows = problems
+    .slice()
+    .sort((x, y) => ({ high: 0, medium: 1, low: 2 }[x.severity] - { high: 0, medium: 1, low: 2 }[y.severity]))
+    .map((p) => {
+      const pst = PROBLEM_STATUSES[p.status || 'open'];
+      const sevCls = p.severity === 'high' ? 'red' : p.severity === 'medium' ? 'yellow' : 'gray';
+      return `<div class="item-card ${p.status === 'resolved' ? 'item-resolved' : ''}">
+        <div class="item-head">
+          <strong class="item-name">${esc(p.title)}</strong>
+          <span class="badge badge-${pst.color}">${pst.label}</span>
+        </div>
+        <div class="item-meta">
+          <span class="badge badge-${sevCls}">${PROBLEM_CATEGORIES[p.category] || p.category}</span>
+          ${p.accountant_name ? `<span>Бухгалтер: <b>${esc(p.accountant_name)}</b></span>` : ''}
+          ${p.detected_date ? `<span>Дата: <b>${fmtDate(p.detected_date)}</b></span>` : ''}
+        </div>
+        <div class="item-reason">${esc(p.description || '')}</div>
+        ${fromDb ? `<div class="review-fields">
+          ${Object.entries(PROBLEM_STATUSES).map(([k, v]) =>
+            `<button class="btn btn-status ${p.status === k ? 'btn-status-active btn-status-' + v.color : ''}"
+                     data-prob-status="${k}" data-id="${p.id}">${v.label}</button>`).join('')}
+        </div>` : ''}
+      </div>`;
+    }).join('') || '<p class="empty">Проблем не обнаружено ✓</p>';
+
+  body.innerHTML = `
+    ${scheduleBannerHtml()}
+    ${reportHtml}
+    <h3 class="block-title">По бухгалтерам · задачи, не отражённые в выгрузке</h3>
+    <p class="hint">Разворачивайте бухгалтера, чтобы увидеть конкретные задачи. Поле самопроверки —
+      заготовка следующего этапа: бухгалтер сам подтверждает, учтена ли работа.</p>
+    ${accFilter}
+    <div class="list">${accCards}</div>
+    <h3 class="block-title">Список проблем сверки <span class="count-pill">${problems.length}</span></h3>
+    <p class="hint">Расхождения, пропуски и ошибки формата, найденные при сверке задач с выгрузкой.</p>
+    <div class="list">${probRows}</div>`;
+
+  bindSyncActions(body);
+}
+
+function bindSyncActions(container) {
+  const accSel = container.querySelector('#sync-acc');
+  if (accSel) accSel.addEventListener('change', () => { state.syncAccountant = accSel.value; renderSync(); });
+
+  container.querySelectorAll('[data-selfcheck-save]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const id = +b.dataset.selfcheckSave;
+      const card = b.closest('.sync-task');
+      const status = card.querySelector('[data-selfcheck]').value;
+      const note = card.querySelector('[data-selfcheck-note]').value || null;
+      try {
+        const updated = await updateTaskSyncItem(id, {
+          accountant_response_status: status,
+          accountant_response: note,
+          accountant_confirmed: status === 'confirmed_ok',
+          accountant_checked_at: new Date().toISOString(),
+        });
+        const idx = state.taskSyncItems.findIndex((r) => r.id === id);
+        if (idx >= 0) state.taskSyncItems[idx] = updated;
+        toast('Самопроверка сохранена ✓');
+        renderSync();
+      } catch (e) { toast('Ошибка: ' + e.message, true); }
+    }));
+
+  container.querySelectorAll('[data-prob-status]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const id = +b.dataset.id;
+      const status = b.dataset.probStatus;
+      try {
+        const updated = await updateSyncProblem(id, {
+          status, resolved_at: status === 'resolved' ? new Date().toISOString() : null,
+        });
+        const idx = state.syncProblems.findIndex((r) => r.id === id);
+        if (idx >= 0) state.syncProblems[idx] = updated;
+        toast('Статус проблемы обновлён ✓');
+        renderSync();
+      } catch (e) { toast('Ошибка: ' + e.message, true); }
+    }));
 }
 
 /* -------------------------- Строка компании ------------------------------ */
@@ -740,6 +938,21 @@ async function recompute(showToast = true) {
     await upsertSnapshot(state.computed.counts, state.src.exportMeta,
       exportRecords, state.snapshots);
     state.snapshots = await loadSnapshots();
+
+    // сверка задач бухгалтеров с выгрузкой Артёма — в отдельном try, чтобы
+    // сбой сверки НЕ ломал пересчёт дельты
+    try {
+      state.exportStatus = await loadExportStatus();
+      state.taskSync = computeTaskSync(state.src, state.exportStatus);
+      await syncTaskSyncRows(state.taskSync.tasks, state.taskSyncItems);
+      await syncProblemRows(state.taskSync.problems, state.syncProblems);
+      state.taskSyncItems = await loadTaskSync();
+      state.syncProblems = await loadSyncProblems();
+    } catch (e) {
+      console.error('Ошибка сверки задач:', e);
+      toast('Сверка задач: ' + e.message, true);
+    }
+
     renderAll();
     if (showToast) toast('Дельта пересчитана и сохранена ✓');
   } catch (e) {
@@ -764,6 +977,7 @@ function renderAll() {
   renderSummaryCards();
   renderSnapshotTable();
   renderExports();
+  renderSync();
   renderDeltaList();
   renderReviewList();
   renderTz();
@@ -793,13 +1007,19 @@ async function init() {
   });
 
   try {
-    const [src, deltaItems, snapshots, tzItems] = await Promise.all([
+    const [src, deltaItems, snapshots, tzItems, exportStatus, taskSyncItems, syncProblems] = await Promise.all([
       loadSourceData(), loadDeltaItems(), loadSnapshots(), loadTzItems(),
+      loadExportStatus().catch((e) => { console.error(e); return null; }),
+      loadTaskSync().catch((e) => { console.error(e); return []; }),
+      loadSyncProblems().catch((e) => { console.error(e); return []; }),
     ]);
     state.src = src;
     state.deltaItems = deltaItems;
     state.snapshots = snapshots;
     state.tzItems = tzItems;
+    state.exportStatus = exportStatus;
+    state.taskSyncItems = taskSyncItems;
+    state.syncProblems = syncProblems;
 
     // индексы для раздела «Встречи» (сравнение с выгрузкой Артёма: tax + armsoft)
     state._indexes = {
@@ -810,6 +1030,7 @@ async function init() {
     // расчёт в памяти (без записи в БД) — чтобы графики/сравнения выгрузок
     // и счётчики были доступны сразу, даже без ручного пересчёта
     state.computed = computeDelta(state.src);
+    state.taskSync = computeTaskSync(state.src, state.exportStatus);
 
     // фильтры рисуем после загрузки списка бухгалтеров
     $('#filters-delta').innerHTML = filtersHtml('delta');

@@ -360,3 +360,48 @@ body.modal-open { overflow: hidden; }
 }
 .data-table.compact th, .data-table.compact td { padding: 7px 10px; }
 .data-table.compact tbody tr:nth-child(even) { background: var(--surface-2); }
+
+/* ------------------------- Синхронизация задач --------------------------- */
+.yellow { color: var(--warn); }
+
+.sched-banner {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px; border-radius: var(--radius);
+  border: 1px solid var(--border); margin: 12px 0;
+}
+.sched-banner .sched-emoji { font-size: 26px; line-height: 1; }
+.sched-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sched-green  { background: var(--good-bg); border-color: #bfe6bf; }
+.sched-red    { background: var(--bad-bg);  border-color: #f0c4c4; }
+.sched-yellow { background: var(--warn-bg); border-color: #f0dca6; }
+.sched-gray   { background: var(--gray-bg); }
+
+.report-tiles { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 8px 0; }
+.report-tile {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 16px; border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.report-tile .tile-label { font-size: 13px; color: var(--text-2); }
+.report-tile .tile-value { font-size: 24px; font-weight: 800; }
+.report-tile .tile-sub { font-size: 12px; color: var(--text-3); }
+.tile-green  { background: var(--good-bg); border-color: #bfe6bf; }
+.tile-red    { background: var(--bad-bg);  border-color: #f0c4c4; }
+.tile-yellow { background: var(--warn-bg); border-color: #f0dca6; }
+.tile-gray   { background: var(--gray-bg); }
+.report-stats { margin: 6px 0 4px; }
+
+.sync-task {
+  border-top: 1px solid var(--border); padding: 8px 0; margin-top: 8px;
+}
+.sync-task-main { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sync-selfcheck { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.sync-selfcheck select, .sync-selfcheck input {
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px;
+}
+.sync-selfcheck input { flex: 1; min-width: 140px; }
+.btn-sm { padding: 6px 12px; font-size: 13px; }
+
+@media (min-width: 720px) {
+  .report-tiles { grid-template-columns: 1fr 1fr; }
+}

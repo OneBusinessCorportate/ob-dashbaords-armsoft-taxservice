@@ -80,6 +80,15 @@
     <div id="exports-body"></div>
   </section>
 
+  <!-- ==================== СИНХРОНИЗАЦИЯ ====================== -->
+  <section class="view" id="view-sync" hidden>
+    <h2 class="view-title">Синхронизация задач</h2>
+    <p class="hint">Сверка ежедневных задач бухгалтеров с выгрузкой Артёма — единственным
+      источником полной бухгалтерской информации. Показывает, какие задачи каждого
+      бухгалтера НЕ отражены в выгрузке, статус графика выгрузки и список проблем.</p>
+    <div id="sync-body"></div>
+  </section>
+
   <!-- ======================= 2. ДЕЛЬТА ======================= -->
   <section class="view" id="view-delta" hidden>
     <h2 class="view-title">Дельта / Расхождения</h2>
@@ -142,6 +151,7 @@
 <script src="js/normalize.js"></script>
 <script src="js/data.js"></script>
 <script src="js/delta.js"></script>
+<script src="js/tasksync.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
