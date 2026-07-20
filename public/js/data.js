@@ -187,6 +187,109 @@ async function updateTzItem(id, fields) {
   if (error) throw new Error('artyom_tz_items update: ' + error.message);
 }
 
+/* ----------------------------------------------------------------------------
+ * Синхронизация задач бухгалтеров с выгрузкой Артёма.
+ * -------------------------------------------------------------------------- */
+
+/** Статус графика выгрузки Артёма (4 состояния) — из SQL-функции */
+async function loadExportStatus() {
+  const { data, error } = await sb.from('v_artyom_export_status').select('*').maybeSingle();
+  if (error) throw new Error('v_artyom_export_status: ' + error.message);
+  return data;
+}
+
+async function loadTaskSync() {
+  return fetchAll('accountant_task_sync', 'id');
+}
+
+async function loadSyncProblems() {
+  return fetchAll('sync_problems', 'id');
+}
+
+/**
+ * Сохранение результатов сверки задач. Как и в delta_items: upsert по task_key,
+ * поля самопроверки бухгалтера (accountant_response*, accountant_confirmed,
+ * accountant_checked_at, reviewer_note) НЕ трогаются — они не входят в payload.
+ * Исчезнувшие задачи получают resolved_at; вернувшиеся — переоткрываются.
+ */
+async function syncTaskSyncRows(computedTasks, existing) {
+  const today = todayStr();
+  const nowIso = new Date().toISOString();
+  const seen = new Set();
+  const items = computedTasks.filter((t) => (seen.has(t.task_key) ? false : (seen.add(t.task_key), true)));
+
+  const payload = items.map((t) => ({
+    task_key: t.task_key,
+    sync_date: today,
+    resolved_at: null,
+    accountant_name: t.accountant_name || null,
+    company_name: t.company_name,
+    hvhh: t.hvhh || null,
+    system_source: t.system_source || null,
+    task_type: t.task_type || null,
+    task_type_label: t.task_type_label || null,
+    work_summary: t.work_summary || null,
+    last_task_date: t.last_task_date || null,
+    in_artyom_export: !!t.in_artyom_export,
+    match_quality: t.match_quality || 'none',
+    not_expected_in_export: !!t.not_expected_in_export,
+    status: t.status,
+    problem_type: t.problem_type || null,
+    problem_description: t.problem_description || null,
+  }));
+
+  const CHUNK = 400;
+  for (let i = 0; i < payload.length; i += CHUNK) {
+    const { error } = await sb.from('accountant_task_sync')
+      .upsert(payload.slice(i, i + CHUNK), { onConflict: 'task_key' });
+    if (error) throw new Error('accountant_task_sync upsert: ' + error.message);
+  }
+
+  const keys = new Set(items.map((t) => t.task_key));
+  const toResolve = existing.filter((r) => !r.resolved_at && !keys.has(r.task_key)).map((r) => r.id);
+  for (let i = 0; i < toResolve.length; i += CHUNK) {
+    const { error } = await sb.from('accountant_task_sync')
+      .update({ resolved_at: nowIso }).in('id', toResolve.slice(i, i + CHUNK));
+    if (error) throw new Error('accountant_task_sync resolve: ' + error.message);
+  }
+}
+
+/** Сохранение списка проблем сверки. upsert по problem_key; статус разбора
+ *  (status/resolved_at) не перетирается — не входит в payload. */
+async function syncProblemRows(computedProblems, existing) {
+  const seen = new Set();
+  const items = computedProblems.filter((p) => (seen.has(p.problem_key) ? false : (seen.add(p.problem_key), true)));
+  const payload = items.map((p) => ({
+    problem_key: p.problem_key,
+    category: p.category,
+    severity: p.severity || 'medium',
+    title: p.title,
+    description: p.description || null,
+    accountant_name: p.accountant_name || null,
+    company_name: p.company_name || null,
+    source: p.source || null,
+    detected_date: p.detected_date || null,
+  }));
+  const CHUNK = 400;
+  for (let i = 0; i < payload.length; i += CHUNK) {
+    const { error } = await sb.from('sync_problems')
+      .upsert(payload.slice(i, i + CHUNK), { onConflict: 'problem_key' });
+    if (error) throw new Error('sync_problems upsert: ' + error.message);
+  }
+}
+
+async function updateTaskSyncItem(id, fields) {
+  const { data, error } = await sb.from('accountant_task_sync').update(fields).eq('id', id).select().single();
+  if (error) throw new Error('accountant_task_sync update: ' + error.message);
+  return data;
+}
+
+async function updateSyncProblem(id, fields) {
+  const { data, error } = await sb.from('sync_problems').update(fields).eq('id', id).select().single();
+  if (error) throw new Error('sync_problems update: ' + error.message);
+  return data;
+}
+
 /** Строка «где компания реально существует» для карточек и ТЗ */
 function sourcesLine(item) {
   const parts = [];
