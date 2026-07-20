@@ -16,7 +16,7 @@ const state = {
   exportStatus: null, // строка v_artyom_export_status (статус графика выгрузки)
   syncAccountant: '', // фильтр раздела «Синхронизация» по бухгалтеру
   accCompare: null,   // результат computeAccountantComparison
-  accFilter: { accountant: '', activeOnly: true, workOnly: false, search: '' },
+  accFilter: { accountant: '', activeOnly: true, workOnly: false, search: '', presence: '' },
   accShown: 60,       // пагинация списка компаний на странице «Бухгалтеры»
   accExpanded: new Set(),  // раскрытые карточки компаний (показан список задач)
   accFeed: new Map(),      // кэш списка задач по ключу «armId|tin» → {loading, error, rows}
@@ -909,6 +909,10 @@ function renderAccountants() {
   let rows = f.accountant ? (sel ? sel.companies.slice() : []) : cmp.rows.slice();
   if (f.activeOnly) rows = rows.filter((r) => r.is_active);
   if (f.workOnly) rows = rows.filter((r) => r.has_work);
+  if (f.presence === 'no_tax') rows = rows.filter((r) => !r.in_taxservice);
+  else if (f.presence === 'no_arm') rows = rows.filter((r) => !r.in_armsoft);
+  else if (f.presence === 'in_tax') rows = rows.filter((r) => r.in_taxservice);
+  else if (f.presence === 'in_arm') rows = rows.filter((r) => r.in_armsoft);
   if (f.search) {
     const q = f.search.toLowerCase();
     rows = rows.filter((r) => `${r.company_name} ${r.hvhh || ''} ${r.contract_number || ''} ${r.accountant_name || ''}`.toLowerCase().includes(q));
@@ -943,6 +947,15 @@ function renderAccountants() {
         ${accs.map((a) => `<option ${f.accountant === a ? 'selected' : ''}>${esc(a)}</option>`).join('')}
       </select>
     </label>
+    <label>Выгрузка
+      <select id="acc-presence">
+        <option value="" ${f.presence === '' ? 'selected' : ''}>Все</option>
+        <option value="no_tax" ${f.presence === 'no_tax' ? 'selected' : ''}>Только без выгрузки в TaxService</option>
+        <option value="no_arm" ${f.presence === 'no_arm' ? 'selected' : ''}>Только без выгрузки в ArmSoft</option>
+        <option value="in_tax" ${f.presence === 'in_tax' ? 'selected' : ''}>Только с выгрузкой в TaxService</option>
+        <option value="in_arm" ${f.presence === 'in_arm' ? 'selected' : ''}>Только с выгрузкой в ArmSoft</option>
+      </select>
+    </label>
     <label class="filter-search">Поиск
       <input type="search" id="acc-search" placeholder="Компания, ՀՎՀՀ, договор…" value="${esc(f.search)}">
     </label>
@@ -973,6 +986,8 @@ function bindAccountantActions(container) {
   if (actEl) actEl.addEventListener('change', () => { state.accFilter.activeOnly = actEl.checked; state.accShown = 60; rerender(); });
   const workEl = container.querySelector('#acc-work');
   if (workEl) workEl.addEventListener('change', () => { state.accFilter.workOnly = workEl.checked; state.accShown = 60; rerender(); });
+  const presEl = container.querySelector('#acc-presence');
+  if (presEl) presEl.addEventListener('change', () => { state.accFilter.presence = presEl.value; state.accShown = 60; rerender(); });
   const moreEl = container.querySelector('#acc-more');
   if (moreEl) moreEl.addEventListener('click', () => { state.accShown += 60; rerender(); });
   const srchEl = container.querySelector('#acc-search');
