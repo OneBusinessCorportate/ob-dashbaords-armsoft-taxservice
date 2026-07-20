@@ -32,6 +32,10 @@ const ACC_TASK_FIELDS = [
  */
 function computeAccountantComparison(src) {
   const { clients = [], tax = [], armsoft = [], activities = [], comments = [] } = src || {};
+  // Карты РЕАЛЬНОЙ работы из выгрузки Артёма (см. data.js / v_ob_*_activity).
+  // В тестовой среде их нет — тогда пустые карты и работа = 0.
+  const armActivityById = src && src.armActivityById ? src.armActivityById : new Map();
+  const taxActivityByTin = src && src.taxActivityByTin ? src.taxActivityByTin : new Map();
 
   const taxIndex = buildIndex(tax, ['client_name_ru', 'org_name_hy'], 'tin');
   const armIndex = buildIndex(armsoft, ['caption', 'name'], null);
@@ -93,6 +97,26 @@ function computeAccountantComparison(src) {
     const inArm = armMatch.found && armMatch.quality !== 'fuzzy';
     const hvhh = taxMatch.found ? (taxMatch.entity.tin || null) : null;
 
+    // --- РЕАЛЬНАЯ работа по компании из выгрузки Артёма ------------------------
+    // ключ к налоговой активности — ИНН из совпадения; к ArmSoft — company_id.
+    const armId = armMatch.found ? (armMatch.entity.company_id ?? null) : null;
+    const taxAct = hvhh ? (taxActivityByTin.get(normalizeHvhh(hvhh)) || null) : null;
+    const armAct = armId != null ? (armActivityById.get(armId) || null) : null;
+    const work = {
+      reports:          Number(taxAct?.reports_submitted || 0),
+      tax_inv_issued:   Number(taxAct?.tax_invoices_issued || 0),
+      tax_inv_received: Number(taxAct?.tax_invoices_received || 0),
+      arm_inv_issued:   Number(armAct?.invoices_issued || 0),
+      arm_inv_received: Number(armAct?.invoices_received || 0),
+    };
+    work.invoices_issued = work.tax_inv_issued + work.arm_inv_issued;
+    work.invoices_received = work.tax_inv_received + work.arm_inv_received;
+    work.total = work.reports + work.invoices_issued + work.invoices_received;
+    const workLastDate = [taxAct?.last_activity_date, armAct?.last_doc_date]
+      .filter(Boolean).sort().slice(-1)[0] || null;
+    work.last_date = workLastDate;
+    const hasWork = work.total > 0;
+
     const key = normalizeName(acc || '') + '||' + norm;
     const act = actMap.get(key) || null;
     const comms = commMap.get(key) || [];
@@ -109,9 +133,14 @@ function computeAccountantComparison(src) {
     rows.push({
       accountant_name: acc,
       company_name: client.company_name,
+      contract_number: client.contract_number || null,
       hvhh,
+      arm_id: armId,          // company_id ArmSoft — ключ к списку задач (RPC)
+      tin: hvhh,              // ИНН — ключ к налоговым задачам (RPC)
       is_active: !!client.is_active,
       reported,
+      has_work: hasWork,      // есть реальная работа в выгрузке Артёма
+      work,                   // сводка реальной работы (отчёты/счета)
       in_armsoft: inArm,
       in_taxservice: inTax,
       in_ob_registry: true,
@@ -137,7 +166,8 @@ function computeAccountantComparison(src) {
     const acc = r.accountant_name || '— без бухгалтера';
     let s = byAccMap.get(acc);
     if (!s) {
-      s = { accountant: acc, companies: [], total: 0, active: 0, reported: 0, inArmsoft: 0, inTax: 0, reportedMissing: 0, tasksTotal: 0 };
+      s = { accountant: acc, companies: [], total: 0, active: 0, reported: 0, inArmsoft: 0, inTax: 0, reportedMissing: 0, tasksTotal: 0,
+        withWork: 0, workReports: 0, workInvoicesIssued: 0, workInvoicesReceived: 0, workTotal: 0, lastWorkDate: null };
       byAccMap.set(acc, s);
     }
     s.companies.push(r);
@@ -148,9 +178,16 @@ function computeAccountantComparison(src) {
     if (r.in_taxservice) s.inTax += 1;
     if (r.verdict === 'reported_missing') s.reportedMissing += 1;
     if (r.tasks) s.tasksTotal += r.tasks.total;
+    // рулоны реальной работы
+    if (r.has_work) s.withWork += 1;
+    s.workReports += r.work.reports;
+    s.workInvoicesIssued += r.work.invoices_issued;
+    s.workInvoicesReceived += r.work.invoices_received;
+    s.workTotal += r.work.total;
+    if (r.work.last_date && (!s.lastWorkDate || r.work.last_date > s.lastWorkDate)) s.lastWorkDate = r.work.last_date;
   }
   const byAccountant = [...byAccMap.values()]
-    .sort((a, b) => b.reportedMissing - a.reportedMissing || b.active - a.active || b.total - a.total);
+    .sort((a, b) => b.workTotal - a.workTotal || b.active - a.active || b.total - a.total);
 
   return { rows, byAccountant };
 }

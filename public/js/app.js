@@ -16,7 +16,10 @@ const state = {
   exportStatus: null, // строка v_artyom_export_status (статус графика выгрузки)
   syncAccountant: '', // фильтр раздела «Синхронизация» по бухгалтеру
   accCompare: null,   // результат computeAccountantComparison
-  accFilter: { accountant: '', activeOnly: true, mismatchOnly: false, search: '' },
+  accFilter: { accountant: '', activeOnly: true, workOnly: false, search: '' },
+  accShown: 60,       // пагинация списка компаний на странице «Бухгалтеры»
+  accExpanded: new Set(),  // раскрытые карточки компаний (показан список задач)
+  accFeed: new Map(),      // кэш списка задач по ключу «armId|tin» → {loading, error, rows}
   view: 'summary',
   deltaShown: 100,    // пагинация списков
   reviewShown: 50,
@@ -793,22 +796,102 @@ function generateArtyomMessage() {
   $('#tz-message-box').hidden = false;
 }
 
-/* --------------------- Бухгалтеры: сверка «сказал сделано» ----------------- */
-function accVerdictBadge(v) {
-  const m = ACC_VERDICTS[v] || ACC_VERDICTS.none;
-  return `<span class="badge badge-${m.color}">${m.short}</span>`;
+/* ------------- Бухгалтеры: реальная работа по каждой компании -------------- */
+/* Каждая карточка компании показывает фактическую работу из выгрузки Артёма
+ * (сданные налоговые отчёты + выставленные/полученные счета ArmSoft и
+ * TaxService) и раскрывается в список КОНКРЕТНЫХ задач (ob_company_task_feed). */
+
+const ACC_CAT = {
+  invoice_issued:       { icon: '🧾', verb: 'Выставлен счёт' },
+  invoice_received:     { icon: '📥', verb: 'Получен счёт' },
+  tax_invoice_issued:   { icon: '🧾', verb: 'Выставлен налоговый счёт' },
+  tax_invoice_received: { icon: '📥', verb: 'Получен налоговый счёт' },
+  report:               { icon: '📄', verb: 'Сдан отчёт' },
+};
+
+/** Сумма с валютой: 14000, AMD → «14 000 ֏» */
+function fmtMoney(amount, cur) {
+  if (amount == null || amount === '') return '';
+  const n = Number(amount);
+  if (!isFinite(n) || n === 0) return '';
+  const val = fmtNum(Math.round(n));
+  return cur === 'AMD' || !cur ? `${val} ֏` : `${val} ${cur}`;
 }
 
-/** Чипы задач бухгалтера (его «задачи»: счета/отчёты/заявления/остатки) */
-function accTaskChips(tasks) {
-  if (!tasks || !tasks.total) return '<span class="muted">— нет отчёта</span>';
-  return ACC_TASK_FIELDS
-    .filter(([f]) => tasks[f] > 0)
-    .map(([f, label]) => `<span class="chip chip-yes">${label}: ${tasks[f]}</span>`)
-    .join(' ') || '<span class="muted">—</span>';
+/** Компактные значки «где существует компания» */
+function accExistBadges(r) {
+  const cell = (ok, label, fuzzy) =>
+    `<span class="ex ex-${ok ? 'y' : 'n'}" title="${label}">${label}${fuzzy ? ' ≈' : ''}</span>`;
+  return `<span class="ex-row">`
+    + cell(r.in_ob_registry, 'OB')
+    + cell(r.in_taxservice, 'TaxService', r.tax_quality === 'fuzzy')
+    + cell(r.in_armsoft, 'ArmSoft', r.arm_quality === 'fuzzy')
+    + `</span>`;
 }
 
-const yesNo = (ok) => `<span class="chip ${ok ? 'chip-yes' : 'chip-no'}">${ok ? '✓' : '✗'}</span>`;
+/** Чипы-сводка реальной работы компании */
+function accWorkChips(w) {
+  if (!w || !w.total) return '<span class="muted">нет работы в выгрузке Артёма</span>';
+  const chips = [];
+  if (w.reports)           chips.push(`<span class="wchip wchip-report">📄 Отчёты: ${w.reports}</span>`);
+  if (w.invoices_issued)   chips.push(`<span class="wchip wchip-inv">🧾 Счета выст.: ${w.invoices_issued}</span>`);
+  if (w.invoices_received) chips.push(`<span class="wchip wchip-rcv">📥 Счета получ.: ${w.invoices_received}</span>`);
+  return chips.join(' ');
+}
+
+/** Ключ компании для раскрытия/кэша списка задач */
+function accKey(r) { return `${r.arm_id != null ? r.arm_id : ''}|${r.tin || ''}`; }
+
+/** Одна задача в раскрытом списке */
+function accTaskLine(t) {
+  const m = ACC_CAT[t.category] || { icon: '•', verb: t.category };
+  const money = fmtMoney(t.amount, t.currency);
+  const detail = t.detail ? ` — ${esc(t.detail)}` : '';
+  const sum = money ? ` <b class="task-sum">${money}</b>` : '';
+  const st = t.status ? ` <span class="task-st">${esc(t.status)}</span>` : '';
+  return `<div class="task-line task-${t.system === 'ArmSoft' ? 'arm' : 'tax'}">
+    <span class="task-date">${fmtDate(t.task_date)}</span>
+    <span class="task-sys">${esc(t.system)}</span>
+    <span class="task-body">${m.icon} ${esc(m.verb)}: ${esc(t.title)}${detail}${sum}${st}</span>
+  </div>`;
+}
+
+/** Блок раскрытого списка задач (учитывает состояние загрузки/ошибки/кэша) */
+function accFeedBlock(r) {
+  const key = accKey(r);
+  const st = state.accFeed.get(key);
+  if (!st || st.loading) return `<div class="acc-feed"><p class="muted">Загрузка задач…</p></div>`;
+  if (st.error) return `<div class="acc-feed"><p class="red">Ошибка загрузки задач: ${esc(st.error)}</p></div>`;
+  if (!st.rows.length) return `<div class="acc-feed"><p class="muted">Задач в выгрузке не найдено.</p></div>`;
+  const shown = st.rows;
+  return `<div class="acc-feed">
+    <div class="acc-feed-head">Задачи (${shown.length}${shown.length >= 500 ? '+, последние' : ''}) — от новых к старым</div>
+    ${shown.map(accTaskLine).join('')}
+  </div>`;
+}
+
+/** Карточка одной компании */
+function accCompanyCard(r, showAcc) {
+  const key = accKey(r);
+  const expanded = state.accExpanded.has(key);
+  const canDrill = r.has_work && (r.arm_id != null || r.tin);
+  const meta = [];
+  if (r.contract_number) meta.push(`Договор <b>${esc(r.contract_number)}</b>`);
+  if (r.hvhh) meta.push(`ՀՎՀՀ <b>${esc(r.hvhh)}</b>`);
+  if (showAcc && r.accountant_name) meta.push(`Бухгалтер: <b>${esc(r.accountant_name)}</b>`);
+  if (r.work.last_date) meta.push(`посл. работа: <b>${fmtDate(r.work.last_date)}</b>`);
+  return `<div class="acc-card${r.has_work ? '' : ' acc-card-idle'}">
+    <div class="acc-card-head">
+      <span class="acc-card-name">${esc(r.company_name)}${r.is_active ? '' : ' <span class="wchip wchip-idle">неактивен</span>'}</span>
+      ${accExistBadges(r)}
+    </div>
+    <div class="acc-card-meta">${meta.join(' · ') || '<span class="muted">нет реквизитов</span>'}</div>
+    <div class="acc-card-work">${accWorkChips(r.work)}</div>
+    ${canDrill ? `<button class="btn btn-sm acc-drill" data-acc-key="${esc(key)}" data-arm="${r.arm_id != null ? r.arm_id : ''}" data-tin="${esc(r.tin || '')}">
+      ${expanded ? '▾ Скрыть задачи' : `▸ Показать задачи (${r.work.total})`}</button>` : ''}
+    ${expanded ? accFeedBlock(r) : ''}
+  </div>`;
+}
 
 function renderAccountants() {
   const body = $('#accountants-body');
@@ -821,46 +904,38 @@ function renderAccountants() {
   const cmp = state.accCompare;
   const f = state.accFilter;
   const accs = cmp.byAccountant.map((a) => a.accountant);
-
-  // --- выбранный бухгалтер (или сводка по всем) ---
   const sel = f.accountant ? cmp.byAccountant.find((a) => a.accountant === f.accountant) : null;
 
-  // строки к показу
-  let rows = f.accountant
-    ? (sel ? sel.companies.slice() : [])
-    : cmp.rows.slice();
+  let rows = f.accountant ? (sel ? sel.companies.slice() : []) : cmp.rows.slice();
   if (f.activeOnly) rows = rows.filter((r) => r.is_active);
-  if (f.mismatchOnly) rows = rows.filter((r) => r.verdict === 'reported_missing');
+  if (f.workOnly) rows = rows.filter((r) => r.has_work);
   if (f.search) {
     const q = f.search.toLowerCase();
-    rows = rows.filter((r) => `${r.company_name} ${r.hvhh || ''} ${r.accountant_name || ''}`.toLowerCase().includes(q));
+    rows = rows.filter((r) => `${r.company_name} ${r.hvhh || ''} ${r.contract_number || ''} ${r.accountant_name || ''}`.toLowerCase().includes(q));
   }
-  rows.sort((a, b) => {
-    const order = { reported_missing: 0, none: 1, confirmed: 2, no_report: 3 };
-    return (order[a.verdict] - order[b.verdict]) || a.company_name.localeCompare(b.company_name, 'ru');
-  });
+  // компании с реальной работой — первыми, внутри по объёму работы, затем по алфавиту
+  rows.sort((a, b) => (b.work.total - a.work.total) || a.company_name.localeCompare(b.company_name, 'ru'));
 
-  // --- показатели выбранного бухгалтера (или всего отдела) ---
+  // --- агрегированные показатели реальной работы ---
   const agg = sel || cmp.byAccountant.reduce((s, a) => ({
-    active: s.active + a.active, reported: s.reported + a.reported,
-    inArmsoft: s.inArmsoft + a.inArmsoft, inTax: s.inTax + a.inTax,
-    reportedMissing: s.reportedMissing + a.reportedMissing, tasksTotal: s.tasksTotal + a.tasksTotal,
-    total: s.total + a.total,
-  }), { active: 0, reported: 0, inArmsoft: 0, inTax: 0, reportedMissing: 0, tasksTotal: 0, total: 0 });
+    active: s.active + a.active, total: s.total + a.total, withWork: s.withWork + a.withWork,
+    workReports: s.workReports + a.workReports,
+    workInvoicesIssued: s.workInvoicesIssued + a.workInvoicesIssued,
+    workInvoicesReceived: s.workInvoicesReceived + a.workInvoicesReceived,
+  }), { active: 0, total: 0, withWork: 0, workReports: 0, workInvoicesIssued: 0, workInvoicesReceived: 0 });
 
   const tiles = `
-    <div class="report-tiles">
-      <div class="report-tile tile-gray"><span class="tile-label">Компаний (активных)</span>
+    <div class="report-tiles acc-tiles">
+      <div class="report-tile tile-gray"><span class="tile-label">Компаний активных</span>
         <span class="tile-value">${agg.active}</span><span class="tile-sub">из ${agg.total} в реестре</span></div>
-      <div class="report-tile tile-gray"><span class="tile-label">Отчитался (есть задачи)</span>
-        <span class="tile-value">${agg.reported}</span><span class="tile-sub">всего задач: ${agg.tasksTotal}</span></div>
-      <div class="report-tile tile-green"><span class="tile-label">В ArmSoft / TaxService</span>
-        <span class="tile-value">${agg.inArmsoft} / ${agg.inTax}</span><span class="tile-sub">подтверждено выгрузкой</span></div>
-      <div class="report-tile tile-${agg.reportedMissing ? 'red' : 'green'}"><span class="tile-label">Сказал сделано — нет в выгрузке</span>
-        <span class="tile-value">${agg.reportedMissing}</span><span class="tile-sub">требует проверки</span></div>
+      <div class="report-tile tile-green"><span class="tile-label">С работой в выгрузке</span>
+        <span class="tile-value">${agg.withWork}</span><span class="tile-sub">есть реальные задачи Артёма</span></div>
+      <div class="report-tile tile-blue"><span class="tile-label">Сдано отчётов</span>
+        <span class="tile-value">${fmtNum(agg.workReports)}</span><span class="tile-sub">налоговые формы</span></div>
+      <div class="report-tile tile-blue"><span class="tile-label">Счета (выст. / получ.)</span>
+        <span class="tile-value">${fmtNum(agg.workInvoicesIssued)} / ${fmtNum(agg.workInvoicesReceived)}</span><span class="tile-sub">ArmSoft + TaxService</span></div>
     </div>`;
 
-  // --- фильтры ---
   const filters = `<div class="filters"><div class="filter-grid">
     <label>Бухгалтер
       <select id="acc-select">
@@ -869,63 +944,72 @@ function renderAccountants() {
       </select>
     </label>
     <label class="filter-search">Поиск
-      <input type="search" id="acc-search" placeholder="Компания, ՀՎՀՀ…" value="${esc(f.search)}">
+      <input type="search" id="acc-search" placeholder="Компания, ՀՎՀՀ, договор…" value="${esc(f.search)}">
     </label>
   </div>
   <div class="filter-checks">
     <label><input type="checkbox" id="acc-active" ${f.activeOnly ? 'checked' : ''}> Только активные клиенты</label>
-    <label><input type="checkbox" id="acc-mismatch" ${f.mismatchOnly ? 'checked' : ''}> Только «сказал сделано — нет в выгрузке»</label>
+    <label><input type="checkbox" id="acc-work" ${f.workOnly ? 'checked' : ''}> Только с работой в выгрузке</label>
   </div></div>`;
 
-  // --- таблица сравнения ---
-  const rowHtml = (r) => `<tr class="acc-row acc-${(ACC_VERDICTS[r.verdict] || {}).color || 'gray'}">
-    <td>${esc(r.company_name)}${r.is_active ? '' : ' <span class="chip chip-no">неактивен</span>'}</td>
-    ${f.accountant ? '' : `<td class="nowrap">${esc(r.accountant_name) || '—'}</td>`}
-    <td class="nowrap">${esc(r.hvhh) || '—'}</td>
-    <td class="acc-tasks">${accTaskChips(r.tasks)}</td>
-    <td style="text-align:center">${yesNo(r.in_armsoft)}${r.arm_quality === 'fuzzy' ? ' <span class="chip chip-fuzzy">≈</span>' : ''}</td>
-    <td style="text-align:center">${yesNo(r.in_taxservice)}${r.tax_quality === 'fuzzy' ? ' <span class="chip chip-fuzzy">≈</span>' : ''}</td>
-    <td style="text-align:center">${yesNo(r.in_ob_registry)}</td>
-    <td>${accVerdictBadge(r.verdict)}</td>
-  </tr>`;
+  const total = rows.length;
+  const slice = rows.slice(0, state.accShown);
+  const list = slice.length
+    ? `<div class="acc-list">${slice.map((r) => accCompanyCard(r, !f.accountant)).join('')}</div>`
+    : '<p class="empty">Нет компаний по выбранным фильтрам</p>';
+  const more = total > slice.length
+    ? `<button class="btn btn-more" id="acc-more">Показать ещё (${total - slice.length})</button>` : '';
+  const count = `<p class="muted">Показано компаний: <b>${slice.length}</b> из ${total}${f.accountant ? '' : ` · бухгалтеров: ${accs.length}`}</p>`;
 
-  const table = `<div class="table-wrap">
-    <table class="data-table compact acc-table">
-      <thead><tr>
-        <th data-tip="Компания из реестра OB (ob_accounting_companies), закреплённая за бухгалтером.">Компания</th>
-        ${f.accountant ? '' : '<th data-tip="Бухгалтер, ответственный за компанию.">Бухгалтер</th>'}
-        <th data-tip="ИНН/ՀՎՀՀ из TaxService.">ՀՎՀՀ</th>
-        <th data-tip="Что бухгалтер отчитал как сделанную работу (его задачи): счета, отчёты, заявления, изменения остатков — из accounting_activities.">В отчёте (задачи)</th>
-        <th data-tip="Компания найдена в ArmSoft-выгрузке Артёма (v_armsoft_companies). ≈ — неточное совпадение.">ArmSoft</th>
-        <th data-tip="Компания найдена в налоговой выгрузке Артёма (v_tax_accounts). ≈ — неточное совпадение.">TaxService</th>
-        <th data-tip="Компания есть в реестре активных клиентов OB.">База OB</th>
-        <th data-tip="Итог сверки: совпадает ли «сказал сделано» с фактом в системах.">Вердикт</th>
-      </tr></thead>
-      <tbody>${rows.map(rowHtml).join('') || `<tr><td colspan="${f.accountant ? 7 : 8}" class="empty">Нет строк по выбранным фильтрам</td></tr>`}</tbody>
-    </table>
-  </div>
-  <p class="muted">Показано компаний: <b>${rows.length}</b></p>`;
-
-  body.innerHTML = tiles + filters + table;
+  body.innerHTML = tiles + filters + count + list + more;
   bindAccountantActions(body);
 }
 
 function bindAccountantActions(container) {
   const rerender = () => renderAccountants();
   const selEl = container.querySelector('#acc-select');
-  if (selEl) selEl.addEventListener('change', () => { state.accFilter.accountant = selEl.value; rerender(); });
+  if (selEl) selEl.addEventListener('change', () => { state.accFilter.accountant = selEl.value; state.accShown = 60; rerender(); });
   const actEl = container.querySelector('#acc-active');
-  if (actEl) actEl.addEventListener('change', () => { state.accFilter.activeOnly = actEl.checked; rerender(); });
-  const misEl = container.querySelector('#acc-mismatch');
-  if (misEl) misEl.addEventListener('change', () => { state.accFilter.mismatchOnly = misEl.checked; rerender(); });
+  if (actEl) actEl.addEventListener('change', () => { state.accFilter.activeOnly = actEl.checked; state.accShown = 60; rerender(); });
+  const workEl = container.querySelector('#acc-work');
+  if (workEl) workEl.addEventListener('change', () => { state.accFilter.workOnly = workEl.checked; state.accShown = 60; rerender(); });
+  const moreEl = container.querySelector('#acc-more');
+  if (moreEl) moreEl.addEventListener('click', () => { state.accShown += 60; rerender(); });
   const srchEl = container.querySelector('#acc-search');
   if (srchEl) srchEl.addEventListener('input', () => {
     state.accFilter.search = srchEl.value;
+    state.accShown = 60;
     const pos = srchEl.selectionStart;
     rerender();
-    const s2 = container.querySelector('#acc-search') || $('#acc-search');
+    const s2 = $('#acc-search');
     if (s2) { s2.focus(); s2.setSelectionRange(pos, pos); }
   });
+  container.querySelectorAll('.acc-drill').forEach((btn) => {
+    btn.addEventListener('click', () => toggleAccFeed(btn.dataset.accKey,
+      btn.dataset.arm ? Number(btn.dataset.arm) : null, btn.dataset.tin || null));
+  });
+}
+
+/** Раскрыть/свернуть список задач компании; при первом раскрытии — загрузка RPC */
+async function toggleAccFeed(key, armId, tin) {
+  if (state.accExpanded.has(key)) {
+    state.accExpanded.delete(key);
+    renderAccountants();
+    return;
+  }
+  state.accExpanded.add(key);
+  if (!state.accFeed.has(key)) {
+    state.accFeed.set(key, { loading: true, rows: [] });
+    renderAccountants();
+    try {
+      const rows = await fetchCompanyTaskFeed(armId, tin, 300);
+      state.accFeed.set(key, { loading: false, rows });
+    } catch (e) {
+      console.error(e);
+      state.accFeed.set(key, { loading: false, error: e.message, rows: [] });
+    }
+  }
+  renderAccountants();
 }
 
 /* ----------------------------- 5. Встречи --------------------------------- */

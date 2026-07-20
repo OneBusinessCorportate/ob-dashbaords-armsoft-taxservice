@@ -406,11 +406,68 @@ body.modal-open { overflow: hidden; }
   .report-tiles { grid-template-columns: 1fr 1fr; }
 }
 
-/* ---------- Страница «Бухгалтеры» (сверка «сказал сделано») ---------- */
-.acc-table td { vertical-align: top; }
-.acc-table .acc-tasks { min-width: 180px; }
-.acc-table .acc-tasks .chip { margin: 1px 2px; }
-.acc-row.acc-red   td:first-child { box-shadow: inset 3px 0 0 var(--red, #e5484d); }
-.acc-row.acc-green td:first-child { box-shadow: inset 3px 0 0 var(--green, #30a46c); }
-.acc-row.acc-yellow td:first-child { box-shadow: inset 3px 0 0 var(--yellow, #f5a623); }
-.acc-row:hover { background: rgba(0,0,0,0.03); }
+/* ---------- Страница «Бухгалтеры» (реальная работа + задачи) ---------- */
+.tile-blue { background: #eaf2fc; border-color: #c4dcf5; }
+.tile-blue .tile-value { color: var(--accent); }
+.acc-tiles { grid-template-columns: 1fr 1fr; }
+@media (min-width: 720px) { .acc-tiles { grid-template-columns: repeat(4, 1fr); } }
+
+.acc-list { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.acc-card {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 12px 14px; background: var(--surface);
+  border-left: 4px solid var(--accent);
+}
+.acc-card-idle { border-left-color: var(--border); opacity: 0.82; }
+.acc-card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.acc-card-name { font-weight: 700; font-size: 15px; }
+.acc-card-meta { font-size: 12px; color: var(--text-2); margin: 5px 0; }
+.acc-card-work { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+
+/* значки «где есть» */
+.ex-row { display: inline-flex; gap: 4px; }
+.ex {
+  font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+  white-space: nowrap;
+}
+.ex-y { background: var(--good-bg); color: var(--good); }
+.ex-n { background: var(--gray-bg); color: var(--text-3); text-decoration: line-through; }
+
+/* чипы сводки работы */
+.wchip {
+  font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid var(--border);
+}
+.wchip-report { background: #eef1fe; color: #3a4fc4; border-color: transparent; }
+.wchip-inv    { background: var(--good-bg); color: var(--good); border-color: transparent; }
+.wchip-rcv    { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+.wchip-idle   { background: var(--gray-bg); color: var(--text-3); border-color: transparent; }
+
+.acc-drill { margin-top: 4px; }
+
+/* раскрытый список конкретных задач */
+.acc-feed {
+  margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px;
+  max-height: 420px; overflow-y: auto;
+}
+.acc-feed-head { font-size: 12px; font-weight: 700; color: var(--text-2); margin-bottom: 6px; }
+.task-line {
+  display: grid; grid-template-columns: 78px 74px 1fr; gap: 8px; align-items: baseline;
+  padding: 6px 0; border-bottom: 1px solid var(--surface-2); font-size: 13px;
+}
+.task-line:last-child { border-bottom: none; }
+.task-date { color: var(--text-3); font-size: 12px; white-space: nowrap; }
+.task-sys {
+  font-size: 10px; font-weight: 700; text-align: center; border-radius: 6px;
+  padding: 2px 4px; align-self: center;
+}
+.task-arm .task-sys { background: var(--good-bg); color: var(--good); }
+.task-tax .task-sys { background: #eef1fe; color: #3a4fc4; }
+.task-body { color: var(--text); min-width: 0; }
+.task-sum { color: var(--text); white-space: nowrap; }
+.task-st { font-size: 11px; color: var(--text-3); }
+
+@media (max-width: 560px) {
+  .task-line { grid-template-columns: 64px 1fr; }
+  .task-line .task-sys { display: none; }
+}

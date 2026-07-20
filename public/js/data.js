@@ -36,7 +36,7 @@ async function fetchAll(table, orderCol, select = '*') {
 
 /** Параллельная загрузка всех исходных данных дашборда */
 async function loadSourceData() {
-  const [clients, tax, armsoft, artem, comments, activities, exportMeta, exportDates, exportVolume] = await Promise.all([
+  const [clients, tax, armsoft, artem, comments, activities, exportMeta, exportDates, exportVolume, armActivity, taxActivity] = await Promise.all([
     fetchAll('ob_accounting_companies', 'id'),
     fetchAll('v_tax_accounts', 'id'),
     fetchAll('v_armsoft_companies', 'company_id'),
@@ -50,8 +50,37 @@ async function loadSourceData() {
     // реальный объём выгрузки по всему проекту OB Artyom (все наборы данных,
     // а не только справочники компаний) — точное число строк по каждому набору
     fetchAll('v_artyom_export_volume', 'source_table'),
+    // РЕАЛЬНАЯ работа по компаниям из выгрузки Артёма (сводка):
+    //   ArmSoft — по company_id (счета выданные/полученные, дата посл. документа)
+    //   TaxService — по ИНН/tin (сданные отчёты, налоговые счета, дата активности)
+    // Мост к клиентам OB строит фронтенд: tin берётся из налогового совпадения,
+    // company_id — из ArmSoft-совпадения (см. accountants.js).
+    fetchAll('v_ob_arm_activity', 'company_id').catch((e) => { console.error(e); return []; }),
+    fetchAll('v_ob_tax_activity', 'tin').catch((e) => { console.error(e); return []; }),
   ]);
-  return { clients, tax, armsoft, artem, comments, activities, exportMeta, exportDates, exportVolume };
+  // индексы «реальной работы» для быстрого доступа по ключу совпадения
+  const armActivityById = new Map(armActivity.map((r) => [r.company_id, r]));
+  const taxActivityByTin = new Map(taxActivity.map((r) => [normalizeHvhh(r.tin), r]));
+  return {
+    clients, tax, armsoft, artem, comments, activities, exportMeta, exportDates, exportVolume,
+    armActivity, taxActivity, armActivityById, taxActivityByTin,
+  };
+}
+
+/**
+ * Список конкретных задач одной компании (drill-down на странице «Бухгалтеры»):
+ * последние документы/отчёты из выгрузки Артёма. Читается через SECURITY DEFINER
+ * RPC ob_company_task_feed. armId — company_id ArmSoft; tin — ИНН налогового
+ * кабинета; любой из них может быть null (тогда берётся только вторая система).
+ */
+async function fetchCompanyTaskFeed(armId, tin, limit = 120) {
+  const { data, error } = await sb.rpc('ob_company_task_feed', {
+    p_armsoft_company_id: armId ?? null,
+    p_tin: tin || null,
+    p_limit: limit,
+  });
+  if (error) throw new Error('ob_company_task_feed: ' + error.message);
+  return data || [];
 }
 
 /** Загрузка сохранённых расхождений (весь реестр, вкл. решённые — для карточек динамики) */
