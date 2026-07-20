@@ -405,3 +405,12 @@ body.modal-open { overflow: hidden; }
 @media (min-width: 720px) {
   .report-tiles { grid-template-columns: 1fr 1fr; }
 }
+
+/* ---------- Страница «Бухгалтеры» (сверка «сказал сделано») ---------- */
+.acc-table td { vertical-align: top; }
+.acc-table .acc-tasks { min-width: 180px; }
+.acc-table .acc-tasks .chip { margin: 1px 2px; }
+.acc-row.acc-red   td:first-child { box-shadow: inset 3px 0 0 var(--red, #e5484d); }
+.acc-row.acc-green td:first-child { box-shadow: inset 3px 0 0 var(--green, #30a46c); }
+.acc-row.acc-yellow td:first-child { box-shadow: inset 3px 0 0 var(--yellow, #f5a623); }
+.acc-row:hover { background: rgba(0,0,0,0.03); }

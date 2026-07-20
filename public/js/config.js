@@ -270,6 +270,14 @@ const PROBLEM_STATUSES = {
   resolved: { label: 'Решено', color: 'green' },
 };
 
+/* Вердикт сверки «бухгалтер сказал сделано» ↔ факт в системах (страница «Бухгалтеры») */
+const ACC_VERDICTS = {
+  reported_missing: { label: 'Сказал сделано — нет в выгрузке', color: 'red',    short: 'Нет в выгрузке' },
+  confirmed:        { label: 'Отчитался и подтверждено',        color: 'green',  short: 'Подтверждено' },
+  no_report:        { label: 'Есть в выгрузке, без отчёта',      color: 'gray',   short: 'Без отчёта' },
+  none:             { label: 'Нет ни отчёта, ни в выгрузке',     color: 'yellow', short: 'Нигде' },
+};
+
 const PROBLEM_CATEGORIES = {
   schedule:         'График выгрузки',
   coverage_gap:     'Нет в выгрузке',

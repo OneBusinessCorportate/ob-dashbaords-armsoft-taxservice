@@ -14,7 +14,7 @@ const read = (f) => fs.readFileSync(path.join(base, f), 'utf8');
 
 // заглушки браузерных глобалов, которые нужны загружаемым модулям
 const STUB = 'function todayStr(){return "2026-07-20";}\n';
-const SRC = ['config.js', 'normalize.js', 'tasksync.js'].map(read).join('\n');
+const SRC = ['config.js', 'normalize.js', 'tasksync.js', 'accountants.js'].map(read).join('\n');
 
 let passed = 0;
 const fails = [];
@@ -72,6 +72,36 @@ const src2 = { clients: [], tax: [], armsoft: [], comments: [],
   activities: [{ company_name: 'Gamma LLC', accountant_name: 'Bob', activity_date: '2026-07-11', system_source: 'armsoft', invoices_issued: 0, reports_submitted: 0, applications_filed: 0, balance_changes: 3 }] };
 const ts2 = computeTaskSync(src2, null);
 eq(ts2.tasks[0].status, 'not_expected', 'balance помечен как «Артём не видит» по config');
+
+// ---- computeAccountantComparison (сверка по бухгалтеру) ----
+const srcA = {
+  clients: [
+    { company_name: 'Alpha LLC', accountant_name: 'Ann', is_active: true,  tax_account_id: 1, armsoft_company_id: 10 },
+    { company_name: 'Beta LLC',  accountant_name: 'Ann', is_active: true,  tax_account_id: null, armsoft_company_id: null },
+    { company_name: 'Gamma LLC', accountant_name: 'Bob', is_active: true,  tax_account_id: null, armsoft_company_id: null },
+  ],
+  tax: [{ id: 1, client_name_ru: 'Alpha LLC', tin: '111', org_name_hy: 'Ալֆա' }],
+  armsoft: [{ company_id: 10, caption: 'Alpha LLC', name: 'alpha' }, { company_id: 99, caption: 'Gamma LLC', name: 'gamma' }],
+  activities: [
+    { company_name: 'Alpha LLC', accountant_name: 'Ann', activity_date: '2026-07-10', system_source: 'taxservice', invoices_issued: 5, reports_submitted: 1, applications_filed: 0, balance_changes: 0 },
+    { company_name: 'Beta LLC',  accountant_name: 'Ann', activity_date: '2026-07-11', system_source: 'armsoft',    invoices_issued: 2, reports_submitted: 0, applications_filed: 0, balance_changes: 0 },
+  ],
+  comments: [],
+};
+const cmp = computeAccountantComparison(srcA);
+const rAlpha = cmp.rows.find((r) => r.company_name === 'Alpha LLC');
+const rBeta  = cmp.rows.find((r) => r.company_name === 'Beta LLC');
+const rGamma = cmp.rows.find((r) => r.company_name === 'Gamma LLC');
+ok(rAlpha.reported && rAlpha.in_armsoft && rAlpha.in_taxservice, 'Alpha: отчитался и есть в обеих выгрузках');
+eq(rAlpha.verdict, 'confirmed', 'Alpha вердикт = подтверждено');
+eq(rAlpha.hvhh, '111', 'Alpha ХВХХ из tax.tin');
+eq(rAlpha.tasks.total, 6, 'Alpha сумма задач = 6');
+ok(rBeta.reported && !rBeta.in_armsoft && !rBeta.in_taxservice, 'Beta: сказал сделано, нет в выгрузке');
+eq(rBeta.verdict, 'reported_missing', 'Beta вердикт = сказал сделано, нет в выгрузке');
+eq(rGamma.verdict, 'no_report', 'Gamma: есть в выгрузке, но без отчёта');
+const annA = cmp.byAccountant.find((a) => a.accountant === 'Ann');
+eq(annA.reportedMissing, 1, 'у Ann одно «сказал сделано — нет в выгрузке» (Beta)');
+eq(annA.reported, 2, 'у Ann две отчитанные компании');
 `;
 
 try {
