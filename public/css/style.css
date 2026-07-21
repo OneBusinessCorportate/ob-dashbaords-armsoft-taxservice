@@ -484,6 +484,10 @@ body.modal-open { overflow: hidden; }
   border-radius: var(--radius); padding: 10px 12px; margin-bottom: 12px; font-size: 13px;
 }
 .dr-chrono-warn code { background: rgba(0,0,0,.05); padding: 1px 4px; border-radius: 4px; }
+.dr-chrono-src {
+  color: var(--text-3); font-size: 12px; margin-bottom: 12px;
+}
+.dr-chrono-src code { background: rgba(0,0,0,.05); padding: 1px 4px; border-radius: 4px; }
 
 .day-list { display: flex; flex-direction: column; gap: 14px; }
 .day-card {

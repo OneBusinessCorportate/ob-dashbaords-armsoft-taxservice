@@ -1217,7 +1217,8 @@ function renderDaily() {
     ? `<div class="dr-chrono-warn">⚠ Хронометраж — <b>${esc(CHRONO.source)}</b>.
         Значения времени условны, пока Гарри не пришлёт эксель с реальными нормативами
         (тогда правим <code>config.js → CHRONO.minutesPerUnit</code>, страница пересчитается сама).</div>`
-    : '';
+    : `<div class="dr-chrono-src">Хронометраж по модели: <b>${esc(CHRONO.source)}</b>.
+        Норматив на услугу — <code>config.js → CHRONO.minutesPerUnit</code>.</div>`;
 
   const header = `
     <div class="dr-explain">Мы считаем сделанной за день работой <b>только</b> то, что видно в
