@@ -1,0 +1,148 @@
+/* =============================================================================
+ * Дневной отчёт по одному бухгалтеру — простая отдельная страница (daily.html).
+ * Цель: чистая, понятная хронология дней без остального дашборда.
+ * ========================================================================== */
+:root {
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --ink: #1c2430;
+  --muted: #6b7482;
+  --line: #e6e9ee;
+  --blue: #2563eb;
+  --blue-ink: #1e40af;
+  --green: #15803d;
+  --green-bg: #eafaf0;
+  --yellow-bg: #fff7e6;
+  --yellow-ink: #92620a;
+  --red: #c81e1e;
+  --red-bg: #fdecec;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .05);
+  --radius: 12px;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+a { color: var(--blue); }
+.wrap { max-width: 900px; margin: 0 auto; padding: 20px 16px 80px; }
+
+/* Шапка */
+.top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.top h1 { font-size: 22px; margin: 0; }
+.top .sub { color: var(--muted); font-size: 13px; }
+.back { font-size: 13px; text-decoration: none; }
+
+/* Плашки-пояснения */
+.note {
+  background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--blue);
+  border-radius: 10px; padding: 12px 14px; margin: 14px 0; box-shadow: var(--shadow);
+}
+.note b { color: var(--blue-ink); }
+.note.src { border-left-color: #b8bfca; font-size: 13px; color: var(--muted); }
+
+/* Панель выбора бухгалтера */
+.picker { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 14px 0; }
+.picker label { font-weight: 600; font-size: 14px; }
+.picker select {
+  font-size: 15px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--card); min-width: 240px; color: var(--ink);
+}
+
+/* Итоговые плитки */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0; }
+.tile { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--shadow); }
+.tile .lab { font-size: 12px; color: var(--muted); }
+.tile .val { font-size: 24px; font-weight: 700; margin-top: 2px; }
+.tile .foot { font-size: 12px; color: var(--muted); }
+.tile.green .val { color: var(--green); }
+.tile.blue .val { color: var(--blue); }
+
+/* Кнопки */
+.btn {
+  font: inherit; font-size: 14px; cursor: pointer; border: 1px solid var(--line);
+  background: var(--card); color: var(--ink); border-radius: 10px; padding: 9px 14px;
+}
+.btn:hover { background: #f0f2f6; }
+.btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+.btn.primary:hover { background: #1d4fd6; }
+.btn.sm { padding: 5px 10px; font-size: 13px; }
+.toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0 4px; }
+
+/* Письмо Артёму */
+.letterbox { margin: 12px 0; }
+.letterbox textarea {
+  width: 100%; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--card); color: var(--ink);
+}
+
+/* Хронология дней */
+.block-title { font-size: 16px; margin: 22px 0 6px; }
+.pill { background: #eef1f6; border-radius: 999px; padding: 1px 9px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.hint { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+
+.day { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 14px; overflow: hidden; }
+.day-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.day-date { font-weight: 700; font-size: 16px; }
+.day-total { color: var(--muted); font-size: 14px; }
+.day-total b { color: var(--ink); }
+.badge { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; margin-left: 8px; }
+.badge.yellow { background: var(--yellow-bg); color: var(--yellow-ink); }
+.badge.green { background: var(--green-bg); color: var(--green); }
+.badge.red { background: var(--red-bg); color: var(--red); }
+
+/* Строка услуги (цифра Артёма) */
+.metrics { padding: 6px 16px; }
+.metric { padding: 10px 0; border-bottom: 1px dashed var(--line); }
+.metric:last-child { border-bottom: none; }
+.metric.disp { background: var(--red-bg); margin: 0 -16px; padding: 10px 16px; }
+.metric-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.metric-name { font-weight: 600; }
+.metric-nums { color: var(--muted); }
+.metric-nums .cnt { color: var(--ink); font-size: 16px; }
+.metric-nums .time { color: var(--green); font-weight: 600; }
+.metric-main .btn { margin-left: auto; }
+.fb-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.fb-row input[type=number] { width: 130px; }
+.fb-row input[type=text] { flex: 1; min-width: 180px; }
+.fb-row input { font: inherit; font-size: 13px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 8px; }
+.fb-row .disp-lab { font-size: 13px; color: var(--red); display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+
+/* Drill «показать за что» */
+.feed { margin-top: 8px; padding: 8px 12px; background: #fafbfc; border: 1px solid var(--line); border-radius: 8px; }
+.feed-head { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.feed-line { font-size: 13px; padding: 3px 0; border-bottom: 1px solid #f0f2f5; display: flex; gap: 8px; flex-wrap: wrap; }
+.feed-line:last-child { border-bottom: none; }
+.feed-comp { font-weight: 600; }
+.feed-line .sum { color: var(--green); font-weight: 600; }
+.feed-line.arm { border-left: 3px solid #7c3aed; padding-left: 8px; }
+.feed-line.tax { border-left: 3px solid var(--blue); padding-left: 8px; }
+
+/* Итоги и обратная связь дня */
+.day-sum { padding: 10px 16px; background: #f7f9fc; border-top: 1px solid var(--line); font-size: 14px; }
+.day-sum b { font-size: 15px; }
+.feedback { padding: 12px 16px; border-top: 1px solid var(--line); }
+.feedback label { display: block; font-size: 13px; font-weight: 600; margin: 10px 0 4px; }
+.feedback .confirm { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.feedback textarea { width: 100%; font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.grand { margin-top: 12px; padding: 10px 12px; background: var(--green-bg); border-radius: 8px; font-weight: 600; }
+.grand b { color: var(--green); font-size: 17px; }
+.grand .muted { font-weight: 400; }
+.actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.actions select { font: inherit; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+
+.muted { color: var(--muted); }
+.empty { text-align: center; color: var(--muted); padding: 40px 0; }
+.empty.red { color: var(--red); }
+
+/* Тост */
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+  background: #1c2430; color: #fff; padding: 10px 18px; border-radius: 10px; font-size: 14px; z-index: 50; box-shadow: var(--shadow); }
+.toast.err { background: var(--red); }
+
+/* Загрузка */
+.loading { text-align: center; color: var(--muted); padding: 50px 0; }
+.spin { width: 26px; height: 26px; border: 3px solid var(--line); border-top-color: var(--blue); border-radius: 50%; animation: sp 0.8s linear infinite; margin: 0 auto 12px; }
+@keyframes sp { to { transform: rotate(360deg); } }
