@@ -83,6 +83,57 @@ async function fetchCompanyTaskFeed(armId, tin, limit = 120) {
   return data || [];
 }
 
+/* ----------------------------------------------------------------------------
+ * Дневной отчёт по одному бухгалтеру (страница «Отчёт по дням»).
+ * armIds/tins — company_id ArmSoft и ИНН налогового кабинета компаний
+ * бухгалтера (мост строит фронтенд, см. accountants.js / dailyreport.js).
+ * -------------------------------------------------------------------------- */
+
+/** Счётчики работы по дню и типу услуги (RPC ob_accountant_daily_activity) */
+async function fetchAccountantDailyActivity(armIds, tins, from = null, to = null) {
+  const { data, error } = await sb.rpc('ob_accountant_daily_activity', {
+    p_company_ids: armIds && armIds.length ? armIds : [],
+    p_tins: tins && tins.length ? tins : [],
+    p_from: from,
+    p_to: to,
+  });
+  if (error) throw new Error('ob_accountant_daily_activity: ' + error.message);
+  return data || [];
+}
+
+/** Конкретные документы за один день и тип услуги (drill «показать за что») */
+async function fetchAccountantDayFeed(armIds, tins, day, category = null, limit = 400) {
+  const { data, error } = await sb.rpc('ob_accountant_day_feed', {
+    p_company_ids: armIds && armIds.length ? armIds : [],
+    p_tins: tins && tins.length ? tins : [],
+    p_day: day,
+    p_category: category,
+    p_limit: limit,
+  });
+  if (error) throw new Error('ob_accountant_day_feed: ' + error.message);
+  return data || [];
+}
+
+/** Сохранённая обратная связь бухгалтера по дням (для выбранного бухгалтера) */
+async function loadDayReports(accountant) {
+  let q = sb.from('accountant_day_reports').select('*');
+  if (accountant) q = q.eq('accountant_name', accountant);
+  const { data, error } = await q.order('report_date', { ascending: false });
+  if (error) throw new Error('accountant_day_reports: ' + error.message);
+  return data || [];
+}
+
+/** Сохранить/обновить обратную связь бухгалтера за день (upsert по паре бухгалтер+дата) */
+async function saveDayReport(row) {
+  const { data, error } = await sb
+    .from('accountant_day_reports')
+    .upsert(row, { onConflict: 'accountant_name,report_date' })
+    .select()
+    .single();
+  if (error) throw new Error('accountant_day_reports upsert: ' + error.message);
+  return data;
+}
+
 /** Загрузка сохранённых расхождений (весь реестр, вкл. решённые — для карточек динамики) */
 async function loadDeltaItems() {
   return fetchAll('delta_items', 'id');

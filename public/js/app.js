@@ -20,6 +20,19 @@ const state = {
   accShown: 60,       // пагинация списка компаний на странице «Бухгалтеры»
   accExpanded: new Set(),  // раскрытые карточки компаний (показан список задач)
   accFeed: new Map(),      // кэш списка задач по ключу «armId|tin» → {loading, error, rows}
+  // --- страница «Отчёт по дням» (один бухгалтер) ---
+  daily: {
+    accountant: '',        // выбранный бухгалтер (по умолч. DAILY_REPORT.defaultAccountant)
+    loading: false,
+    error: null,
+    activity: [],          // сырые счётчики день×услуга (RPC)
+    report: null,          // buildDailyReport(...)
+    reportsByDate: new Map(),  // сохранённая обратная связь бухгалтера: date → row
+    shown: 14,             // сколько дней показываем (пагинация)
+    expanded: new Set(),   // раскрытые drill'ы по ключу «date|category»
+    feed: new Map(),       // кэш документов drill'а: «date|category» → {loading,error,rows}
+    letter: '',            // сгенерированное письмо Артёму
+  },
   view: 'summary',
   deltaShown: 100,    // пагинация списков
   reviewShown: 50,
@@ -71,6 +84,7 @@ const NAV = [
   { id: 'exports', label: 'Выгрузки', icon: '↓' },
   { id: 'sync', label: 'Синхр.', icon: '⇅' },
   { id: 'accountants', label: 'Бухгалтеры', icon: '☺' },
+  { id: 'daily', label: 'Отчёт по дням', icon: '⏱' },
   { id: 'delta', label: 'Дельта', icon: 'Δ' },
   { id: 'review', label: 'Эмилия', icon: '✓' },
   { id: 'artyom', label: 'ТЗ Артёму', icon: '✎' },
@@ -94,6 +108,10 @@ function switchView(v) {
   $('#view-' + v).hidden = false;
   renderNav();
   window.scrollTo({ top: 0 });
+  // «Отчёт по дням» грузится лениво при первом открытии (тяжёлый RPC по дням)
+  if (v === 'daily' && !state.daily.report && !state.daily.loading) {
+    loadDailyReport(state.daily.accountant || DAILY_REPORT.defaultAccountant);
+  }
 }
 
 /* ------------------------- Хелперы по delta_items ------------------------ */
@@ -1025,6 +1043,405 @@ async function toggleAccFeed(key, armId, tin) {
     }
   }
   renderAccountants();
+}
+
+/* ================= Отчёт по дням (один бухгалтер) ========================= */
+/* Хронология по дням: что бухгалтер сделал за день по выгрузке Артёма
+ * (по типам услуг) × хронометраж = сколько времени; + обратная связь
+ * бухгалтера (подтверждение цифр, комментарий к каждой цифре, работа помимо
+ * учтённого времени). Работа за день = отчёт системы + комментарий бухгалтера. */
+
+/** extra_work [{desc,minutes}] → текст «описание | минуты» построчно (для textarea) */
+function formatExtraWork(arr) {
+  return (Array.isArray(arr) ? arr : [])
+    .map((w) => `${w.desc || ''} | ${w.minutes || 0}`).join('\n');
+}
+/** Обратный разбор textarea в extra_work [{desc,minutes}] (пустые строки пропускаем) */
+function parseExtraWork(text) {
+  return String(text || '').split('\n').map((line) => {
+    const t = line.trim();
+    if (!t) return null;
+    const i = t.lastIndexOf('|');
+    if (i < 0) return { desc: t, minutes: 0 };
+    const desc = t.slice(0, i).trim();
+    const minutes = parseInt(t.slice(i + 1).replace(/[^0-9]/g, ''), 10) || 0;
+    return desc ? { desc, minutes } : null;
+  }).filter(Boolean);
+}
+
+/** Загрузка данных страницы для выбранного бухгалтера (ленивая, тяжёлый RPC) */
+async function loadDailyReport(accountant) {
+  const d = state.daily;
+  d.accountant = accountant;
+  d.loading = true;
+  d.error = null;
+  d.report = null;
+  d.shown = 14;
+  d.expanded = new Set();
+  d.feed = new Map();
+  d.letter = '';
+  renderDaily();
+  try {
+    if (!state.accCompare) state.accCompare = computeAccountantComparison(state.src);
+    const bridge = accountantBridge(state.accCompare.rows, accountant);
+    d.bridge = bridge;
+    const [activity, dayReports] = await Promise.all([
+      fetchAccountantDailyActivity(bridge.armIds, bridge.tins),
+      loadDayReports(accountant),
+    ]);
+    d.activity = activity;
+    d.reportsByDate = new Map(dayReports.map((r) => [String(r.report_date).slice(0, 10), r]));
+    d.report = buildDailyReport(activity, CHRONO);
+  } catch (e) {
+    console.error(e);
+    d.error = e.message;
+  } finally {
+    d.loading = false;
+    renderDaily();
+  }
+}
+
+/** Слитый день (отчёт Артёма + сохранённая обратная связь) */
+function dailyMergedDay(day) {
+  return mergeAccountantFeedback(day, state.daily.reportsByDate.get(day.date) || null);
+}
+
+/** Одна строка услуги внутри дня (цифра Артёма + поля обратной связи) */
+function dailyMetricRow(m, date, notes) {
+  const st = SERVICE_TYPES[m.category] || { label: m.category, icon: '•', unit: 'шт' };
+  const note = notes[m.category] || {};
+  const key = `${date}|${m.category}`;
+  const feed = state.daily.feed.get(key);
+  const expanded = state.daily.expanded.has(key);
+  const disputed = !!note.disputed;
+  const accCount = note.accountant_count;
+  return `<div class="dr-metric${disputed ? ' dr-metric-disp' : ''}">
+    <div class="dr-metric-main">
+      <span class="dr-metric-name">${st.icon} ${esc(st.label)}</span>
+      <span class="dr-metric-nums">
+        <b class="dr-count">${m.count}</b> ${esc(st.unit)}${m.count === 1 ? '' : 'а/ов'}
+        <span class="muted">× ${m.minutesPerUnit} мин = <b>${fmtMinutes(m.minutes)}</b></span>
+      </span>
+      <button class="btn btn-sm dr-drill" data-day-drill data-date="${date}" data-cat="${m.category}">
+        ${expanded ? '▾ скрыть' : '▸ показать за что'}</button>
+    </div>
+    <div class="dr-metric-fb">
+      <label class="dr-disp"><input type="checkbox" data-metric-disputed data-cat="${m.category}" ${disputed ? 'checked' : ''}> цифра неверна</label>
+      <input type="number" class="dr-acccount" min="0" placeholder="верная цифра" value="${accCount != null ? accCount : ''}" data-metric-count data-cat="${m.category}">
+      <input type="text" class="dr-metric-comment" placeholder="комментарий к этой цифре…" value="${esc(note.comment || '')}" data-metric-comment data-cat="${m.category}">
+    </div>
+    ${expanded ? `<div class="dr-feed">${
+      !feed || feed.loading ? '<p class="muted">Загрузка документов…</p>'
+      : feed.error ? `<p class="red">Ошибка: ${esc(feed.error)}</p>`
+      : !feed.rows.length ? '<p class="muted">Документов не найдено.</p>'
+      : `<div class="dr-feed-head">${feed.rows.length}${feed.rows.length >= 400 ? '+, первые' : ''} документ(ов):</div>`
+        + feed.rows.map(dailyFeedLine).join('')
+    }</div>` : ''}
+  </div>`;
+}
+
+/** Строка одного документа в drill'е дня */
+function dailyFeedLine(t) {
+  const money = fmtMoney(t.amount, t.currency);
+  const comp = t.company ? `<span class="dr-feed-comp">${esc(t.company)}</span>` : '';
+  const detail = t.detail ? ` — ${esc(t.detail)}` : '';
+  const sum = money ? ` <b class="task-sum">${money}</b>` : '';
+  const stt = t.status ? ` <span class="task-st">${esc(t.status)}</span>` : '';
+  return `<div class="dr-feed-line task-${t.system === 'ArmSoft' ? 'arm' : 'tax'}">
+    ${comp}<span class="task-body">${esc(t.title)}${detail}${sum}${stt}</span>
+  </div>`;
+}
+
+/** Карточка одного дня */
+function dailyDayCard(day) {
+  const md = dailyMergedDay(day);
+  const stMeta = DAY_REPORT_STATUSES[md.status] || DAY_REPORT_STATUSES.pending;
+  const notes = md.metricNotes || {};
+  const fb = md.feedback;
+  return `<div class="day-card" id="day-${day.date}">
+    <div class="day-head">
+      <div class="day-date">${fmtDate(day.date)}
+        <span class="badge badge-${stMeta.color}">${stMeta.label}</span></div>
+      <div class="day-total">по отчёту Артёма: <b>${fmtHours(day.totalMinutes)}</b>
+        <span class="muted">(${day.totalCount} действ.)</span></div>
+    </div>
+
+    <div class="dr-metrics">${day.metrics.map((m) => dailyMetricRow(m, day.date, notes)).join('')}</div>
+
+    <div class="dr-sum">Итого по отчёту системы (Артём): <b>${fmtHours(day.totalMinutes)}</b>
+      <span class="muted">= ${fmtMinutes(day.totalMinutes)}</span></div>
+
+    <div class="dr-feedback">
+      <label class="dr-confirm"><input type="checkbox" data-day-confirm ${md.countsConfirmed ? 'checked' : ''}>
+        Подтверждаю цифры Артёма (кол-во компаний, счетов, отчётов)</label>
+
+      <label class="dr-extra-label">Что делал помимо учтённого времени — по строке на действие,
+        формат «описание | минуты»:</label>
+      <textarea class="dr-extra" data-day-extra rows="3"
+        placeholder="Например: консультация клиента по НДС | 30">${esc(formatExtraWork(md.extraWork))}</textarea>
+
+      <label class="dr-extra-label">Общий комментарий бухгалтера за день:</label>
+      <textarea class="dr-comment" data-day-comment rows="2"
+        placeholder="Свободный комментарий…">${esc(fb && fb.accountant_comment || '')}</textarea>
+
+      <div class="dr-grand">Итого с учётом комментариев бухгалтера:
+        <b>${fmtHours(md.grandTotalMinutes)}</b>
+        <span class="muted">(отчёт Артёма ${fmtMinutes(day.totalMinutes)} + дописано ${fmtMinutes(md.extraMinutes)})</span></div>
+
+      <div class="dr-actions">
+        <label>Статус:
+          <select data-day-status>
+            ${Object.entries(DAY_REPORT_STATUSES).map(([k, v]) =>
+              `<option value="${k}" ${md.status === k ? 'selected' : ''}>${v.label}</option>`).join('')}
+          </select>
+        </label>
+        <button class="btn btn-primary btn-sm" data-day-save data-date="${day.date}">Сохранить день</button>
+        ${fb && fb.confirmed_at ? `<span class="muted">сохранено ${fmtDateTime(fb.updated_at || fb.confirmed_at)}</span>` : ''}
+      </div>
+    </div>
+  </div>`;
+}
+
+/** Полный рендер страницы «Отчёт по дням» */
+function renderDaily() {
+  const body = $('#daily-body');
+  if (!body) return;
+  const d = state.daily;
+
+  const accs = state.accCompare
+    ? state.accCompare.byAccountant.map((a) => a.accountant)
+    : [];
+  const selVal = d.accountant || DAILY_REPORT.defaultAccountant;
+
+  const chronoNote = CHRONO.isDraft
+    ? `<div class="dr-chrono-warn">⚠ Хронометраж — <b>${esc(CHRONO.source)}</b>.
+        Значения времени условны, пока Гарри не пришлёт эксель с реальными нормативами
+        (тогда правим <code>config.js → CHRONO.minutesPerUnit</code>, страница пересчитается сама).</div>`
+    : '';
+
+  const header = `
+    <div class="dr-explain">Мы считаем сделанной за день работой <b>только</b> то, что видно в
+      выгрузке Артёма (отчёт системы), плюс то, что бухгалтер добавил в комментарии. Именно этот
+      объём и будет учтён.</div>
+    ${chronoNote}
+    <div class="filters"><div class="filter-grid">
+      <label>Бухгалтер
+        <select id="daily-accountant">
+          ${accs.map((a) => `<option ${a === selVal ? 'selected' : ''}>${esc(a)}</option>`).join('')}
+        </select>
+      </label>
+    </div></div>`;
+
+  if (d.loading) { body.innerHTML = header + '<p class="empty">Загрузка дневного отчёта…</p>'; bindDailyStatic(body); return; }
+  if (d.error) { body.innerHTML = header + `<p class="empty red">Ошибка: ${esc(d.error)}</p>`; bindDailyStatic(body); return; }
+  if (!d.report) { body.innerHTML = header + '<p class="empty">Нет данных.</p>'; bindDailyStatic(body); return; }
+
+  const rep = d.report;
+  const b = d.bridge || { companyCount: 0, activeCount: 0, withWorkCount: 0 };
+
+  // сколько дней уже согласовано бухгалтером
+  const confirmedDays = [...d.reportsByDate.values()].filter((r) => r.status === 'confirmed').length;
+
+  const tiles = `<div class="report-tiles acc-tiles">
+    <div class="report-tile tile-gray"><span class="tile-label">Компаний у бухгалтера</span>
+      <span class="tile-value">${b.activeCount}</span><span class="tile-sub">${b.withWorkCount} с работой в выгрузке</span></div>
+    <div class="report-tile tile-blue"><span class="tile-label">Дней с работой</span>
+      <span class="tile-value">${rep.dayCount}</span><span class="tile-sub">в выгрузке Артёма</span></div>
+    <div class="report-tile tile-blue"><span class="tile-label">Действий всего</span>
+      <span class="tile-value">${fmtNum(rep.totalCount)}</span><span class="tile-sub">счета, отчёты и т.д.</span></div>
+    <div class="report-tile tile-green"><span class="tile-label">Времени по хронометражу</span>
+      <span class="tile-value">${fmtHours(rep.totalMinutes)}</span><span class="tile-sub">за весь период</span></div>
+    <div class="report-tile tile-${confirmedDays ? 'green' : 'yellow'}"><span class="tile-label">Дней подтверждено</span>
+      <span class="tile-value">${confirmedDays}</span><span class="tile-sub">из ${rep.dayCount}</span></div>
+  </div>`;
+
+  const letterBox = `<div class="toolbar">
+      <button class="btn btn-primary" data-daily-letter>Письмо Артёму: что не выгрузилось</button>
+    </div>
+    ${d.letter ? `<div class="message-box">
+      <textarea id="daily-letter" rows="12" readonly>${esc(d.letter)}</textarea>
+      <button class="btn btn-primary" data-copy-letter>Скопировать</button>
+    </div>` : ''}`;
+
+  const shown = rep.days.slice(0, d.shown);
+  const list = shown.length
+    ? `<div class="day-list">${shown.map(dailyDayCard).join('')}</div>`
+    : '<p class="empty">У этого бухгалтера нет работы в выгрузке Артёма (нет привязок company_id/ИНН).</p>';
+  const more = rep.days.length > shown.length
+    ? `<button class="btn btn-more" data-daily-more>Показать ещё дни (${rep.days.length - shown.length})</button>` : '';
+
+  body.innerHTML = header + tiles + letterBox
+    + `<h3 class="block-title">Хронология по дням <span class="count-pill">${rep.dayCount}</span></h3>`
+    + `<p class="hint">Для каждого дня: отчёт Артёма по типам услуг и время по хронометражу; итог времени;
+        подтверждение и комментарии бухгалтера (в т.ч. к каждой цифре); итог с учётом комментариев.</p>`
+    + list + more;
+
+  bindDailyStatic(body);
+  bindDailyDelegated(body);
+}
+
+/** Слушатели, которые нужно навесить при каждом полном рендере (селект/статик) */
+function bindDailyStatic(container) {
+  const sel = container.querySelector('#daily-accountant');
+  if (sel) sel.addEventListener('change', () => loadDailyReport(sel.value));
+}
+
+/** Делегированные действия страницы (навешиваются один раз на #daily-body) */
+function bindDailyDelegated(container) {
+  if (container._daily_bound) return;
+  container._daily_bound = true;
+
+  container.addEventListener('click', async (e) => {
+    const more = e.target.closest('[data-daily-more]');
+    if (more) { state.daily.shown += 14; renderDaily(); return; }
+
+    const letterBtn = e.target.closest('[data-daily-letter]');
+    if (letterBtn) { generateAccountantExportLetter(); return; }
+
+    const copyBtn = e.target.closest('[data-copy-letter]');
+    if (copyBtn) {
+      const ta = $('#daily-letter');
+      try { await navigator.clipboard.writeText(ta.value); toast('Скопировано ✓'); }
+      catch { ta.select(); document.execCommand('copy'); toast('Скопировано ✓'); }
+      return;
+    }
+
+    const drill = e.target.closest('[data-day-drill]');
+    if (drill) { toggleDailyFeed(drill.dataset.date, drill.dataset.cat); return; }
+
+    const save = e.target.closest('[data-day-save]');
+    if (save) { saveDailyDay(save.dataset.date); return; }
+  });
+}
+
+/** Раскрыть/свернуть список документов за день+услугу (drill), с ленивой загрузкой */
+async function toggleDailyFeed(date, category) {
+  const d = state.daily;
+  const key = `${date}|${category}`;
+  if (d.expanded.has(key)) { d.expanded.delete(key); rerenderDayCard(date); return; }
+  d.expanded.add(key);
+  if (!d.feed.has(key)) {
+    d.feed.set(key, { loading: true, rows: [] });
+    rerenderDayCard(date);
+    try {
+      const rows = await fetchAccountantDayFeed(d.bridge.armIds, d.bridge.tins, date, category, 400);
+      d.feed.set(key, { loading: false, rows });
+    } catch (e) {
+      d.feed.set(key, { loading: false, error: e.message, rows: [] });
+    }
+  }
+  rerenderDayCard(date);
+}
+
+/** Перерисовать одну карточку дня (не трогая остальные — сохраняет их правки) */
+function rerenderDayCard(date) {
+  const el = document.getElementById('day-' + date);
+  if (!el) return;
+  const day = state.daily.report.days.find((x) => x.date === date);
+  if (!day) return;
+  el.outerHTML = dailyDayCard(day);
+}
+
+/** Собрать правки одной карточки и сохранить обратную связь бухгалтера */
+async function saveDailyDay(date) {
+  const card = document.getElementById('day-' + date);
+  if (!card) return;
+  const d = state.daily;
+  const day = d.report.days.find((x) => x.date === date);
+
+  const metric_notes = {};
+  card.querySelectorAll('[data-metric-comment]').forEach((el) => {
+    const cat = el.dataset.cat;
+    metric_notes[cat] = metric_notes[cat] || {};
+    if (el.value.trim()) metric_notes[cat].comment = el.value.trim();
+  });
+  card.querySelectorAll('[data-metric-count]').forEach((el) => {
+    const cat = el.dataset.cat;
+    if (el.value !== '') { metric_notes[cat] = metric_notes[cat] || {}; metric_notes[cat].accountant_count = parseInt(el.value, 10); }
+  });
+  card.querySelectorAll('[data-metric-disputed]').forEach((el) => {
+    const cat = el.dataset.cat;
+    if (el.checked) { metric_notes[cat] = metric_notes[cat] || {}; metric_notes[cat].disputed = true; }
+  });
+  // убираем пустые записи
+  Object.keys(metric_notes).forEach((k) => { if (!Object.keys(metric_notes[k]).length) delete metric_notes[k]; });
+
+  const extra_work = parseExtraWork(card.querySelector('[data-day-extra]').value);
+  const status = card.querySelector('[data-day-status]').value;
+  const row = {
+    accountant_name: d.accountant,
+    report_date: date,
+    status,
+    counts_confirmed: card.querySelector('[data-day-confirm]').checked,
+    accountant_comment: card.querySelector('[data-day-comment]').value.trim() || null,
+    metric_notes,
+    extra_work,
+    export_minutes: day ? day.totalMinutes : null,
+    confirmed_at: status === 'confirmed' ? new Date().toISOString() : null,
+  };
+  try {
+    const saved = await saveDayReport(row);
+    d.reportsByDate.set(date, saved);
+    toast('День сохранён ✓');
+    rerenderDayCard(date);
+  } catch (e) {
+    toast('Ошибка сохранения: ' + e.message, true);
+  }
+}
+
+/** Письмо Артёму: всё, что по этому бухгалтеру НЕ выгрузилось / отмечено спорным */
+function generateAccountantExportLetter() {
+  const d = state.daily;
+  const b = d.bridge;
+  if (!b) { toast('Сначала выберите бухгалтера', true); return; }
+
+  // A. Активные компании бухгалтера без данных в выгрузке
+  const active = b.companies.filter((c) => c.is_active);
+  const noExport = active.filter((c) => !c.in_taxservice && !c.in_armsoft);
+  const noWork = active.filter((c) => (c.in_taxservice || c.in_armsoft) && !c.has_work);
+
+  // B. Цифры/дни, которые бухгалтер отметил как спорные (обратная связь)
+  const disputed = [];
+  for (const [date, fb] of d.reportsByDate) {
+    const notes = fb.metric_notes || {};
+    for (const [cat, n] of Object.entries(notes)) {
+      if (n && n.disputed) {
+        const st = SERVICE_TYPES[cat] || { label: cat };
+        disputed.push({ date, label: st.label, comment: n.comment || '', acc: n.accountant_count });
+      }
+    }
+  }
+
+  const L = [];
+  L.push('Привет, Артём!');
+  L.push('');
+  L.push(`Мы сверяем твою выгрузку по бухгалтеру «${b.accountant}» с фактической работой.`);
+  L.push('Ниже — то, что в выгрузку не попало или вызывает вопросы. Прошу проверить.');
+  L.push('');
+
+  L.push(`1) Активные компании без данных в выгрузке (ни в TaxService, ни в ArmSoft) — ${noExport.length} шт.:`);
+  if (noExport.length) noExport.forEach((c, i) =>
+    L.push(`   ${i + 1}. «${c.company_name}»${c.hvhh ? ` · ՀՎՀՀ ${c.hvhh}` : ''}${c.contract_number ? ` · договор ${c.contract_number}` : ''}`));
+  else L.push('   — нет');
+  L.push('');
+
+  L.push(`2) Компании есть в выгрузке, но по ним нет ни одной операции (работа не выгрузилась) — ${noWork.length} шт.:`);
+  if (noWork.length) noWork.forEach((c, i) =>
+    L.push(`   ${i + 1}. «${c.company_name}»${c.hvhh ? ` · ՀՎՀՀ ${c.hvhh}` : ''} · где есть: ${[c.in_taxservice ? 'TaxService' : null, c.in_armsoft ? 'ArmSoft' : null].filter(Boolean).join(', ')}`));
+  else L.push('   — нет');
+  L.push('');
+
+  L.push(`3) Цифры, которые бухгалтер отметил как неверные/неполные — ${disputed.length} шт.:`);
+  if (disputed.length) disputed.forEach((x, i) =>
+    L.push(`   ${i + 1}. ${fmtDate(x.date)} · ${x.label}${x.acc != null ? ` · по мнению бухгалтера: ${x.acc}` : ''}${x.comment ? ` · «${x.comment}»` : ''}`));
+  else L.push('   — нет (бухгалтер пока не отмечал расхождений)');
+  L.push('');
+  L.push('Что нужно: проверить, почему это не попало в выгрузку, и добавить в следующий экспорт');
+  L.push('или объяснить, почему этих данных быть не должно. Спасибо!');
+
+  d.letter = L.join('\n');
+  renderDaily();
+  toast('Письмо сформировано ✓');
 }
 
 /* ----------------------------- 5. Встречи --------------------------------- */

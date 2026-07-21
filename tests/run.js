@@ -14,7 +14,7 @@ const read = (f) => fs.readFileSync(path.join(base, f), 'utf8');
 
 // заглушки браузерных глобалов, которые нужны загружаемым модулям
 const STUB = 'function todayStr(){return "2026-07-20";}\n';
-const SRC = ['config.js', 'normalize.js', 'tasksync.js', 'accountants.js'].map(read).join('\n');
+const SRC = ['config.js', 'normalize.js', 'tasksync.js', 'accountants.js', 'dailyreport.js'].map(read).join('\n');
 
 let passed = 0;
 const fails = [];
@@ -130,6 +130,50 @@ eq(annW.withWork, 1, 'rollup withWork по бухгалтеру');
 const cmpNo = computeAccountantComparison({ clients: [{ company_name: 'Solo Company', accountant_name: 'Zed', is_active: true }], tax: [], armsoft: [], activities: [], comments: [] });
 eq(cmpNo.rows[0].work.total, 0, 'без карт активности работа = 0');
 ok(!cmpNo.rows[0].has_work, 'без карт активности has_work=false');
+
+// ---- dailyreport: accountantBridge ----
+const accRows = [
+  { accountant_name: 'Ann', arm_id: 10, tin: '111', is_active: true,  has_work: true },
+  { accountant_name: 'Ann', arm_id: null, tin: '222', is_active: true,  has_work: false },
+  { accountant_name: 'Ann', arm_id: 10, tin: '111', is_active: false, has_work: false }, // дубли схлопываются
+  { accountant_name: 'Bob', arm_id: 33, tin: '999', is_active: true,  has_work: true },
+];
+const br = accountantBridge(accRows, 'Ann');
+eq(br.armIds.length, 1, 'bridge: уникальные arm_id (10)');
+eq(br.tins.length, 2, 'bridge: уникальные ИНН (111,222)');
+eq(br.companyCount, 3, 'bridge: 3 компании у Ann');
+eq(br.activeCount, 2, 'bridge: 2 активные у Ann');
+eq(br.withWorkCount, 1, 'bridge: 1 с работой у Ann');
+
+// ---- dailyreport: buildDailyReport + хронометраж ----
+const chrono = { minutesPerUnit: { report: 20, invoice_issued: 5, invoice_received: 4 },
+  order: ['report', 'invoice_issued', 'invoice_received'] };
+const activity = [
+  { activity_date: '2026-07-16', category: 'report', cnt: 2 },
+  { activity_date: '2026-07-16', category: 'invoice_issued', cnt: 3 },
+  { activity_date: '2026-07-15', category: 'invoice_received', cnt: 5 },
+];
+const rep = buildDailyReport(activity, chrono);
+eq(rep.dayCount, 2, 'buildDailyReport: 2 дня');
+eq(rep.days[0].date, '2026-07-16', 'дни от новых к старым');
+eq(rep.days[0].totalMinutes, 2 * 20 + 3 * 5, 'минуты дня = 2*20 + 3*5 = 55');
+eq(rep.days[0].totalCount, 5, 'действий за 16-е = 5');
+eq(rep.days[0].metrics[0].category, 'report', 'порядок услуг по CHRONO.order');
+eq(rep.totalMinutes, 55 + 5 * 4, 'итого минут за период = 75');
+
+// ---- dailyreport: extraWork + merge ----
+eq(extraWorkMinutes([{ desc: 'a', minutes: 30 }, { desc: 'b', minutes: 20 }]), 50, 'сумма минут дописанной работы');
+const merged = mergeAccountantFeedback(rep.days[0], { status: 'confirmed', counts_confirmed: true,
+  extra_work: [{ desc: 'консультация', minutes: 30 }], metric_notes: { report: { disputed: true } } });
+eq(merged.extraMinutes, 30, 'merge: дописано 30 мин');
+eq(merged.grandTotalMinutes, 55 + 30, 'merge: итог с учётом комментариев = 85');
+eq(merged.status, 'confirmed', 'merge: статус из обратной связи');
+ok(merged.countsConfirmed, 'merge: цифры подтверждены');
+
+// без обратной связи — grandTotal = отчёт Артёма, статус pending
+const mergedNone = mergeAccountantFeedback(rep.days[1], null);
+eq(mergedNone.grandTotalMinutes, rep.days[1].totalMinutes, 'merge без фидбэка: итог = отчёт Артёма');
+eq(mergedNone.status, 'pending', 'merge без фидбэка: статус pending');
 `;
 
 try {
