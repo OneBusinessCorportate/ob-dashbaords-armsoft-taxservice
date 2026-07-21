@@ -73,6 +73,12 @@ const src2 = { clients: [], tax: [], armsoft: [], comments: [],
 const ts2 = computeTaskSync(src2, null);
 eq(ts2.tasks[0].status, 'not_expected', 'balance помечен как «Артём не видит» по config');
 
+// ---- serviceHours (дневной отчёт: цифры Артёма → часы) ----
+eq(serviceHours({ companies: 0, invoices: 0, services: 0 }), 0, 'нулевые цифры => 0 часов');
+// 4 компании*15 + 12 счетов*5 + 2 услуги*30 = 60 + 60 + 60 = 180 мин = 3.0 ч
+eq(serviceHours({ companies: 4, invoices: 12, services: 2 }), 3, 'норматив по конфигу => 3 часа');
+eq(serviceHours({}), 0, 'пустой объект => 0 часов без падения');
+
 // ---- computeAccountantComparison (сверка по бухгалтеру) ----
 const srcA = {
   clients: [

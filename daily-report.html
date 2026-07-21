@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#fcfcfb">
+  <title>OneBusiness — Дневной отчёт бухгалтера</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='0.9em' font-size='90'%3E🗓%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+  <!-- Supabase JS v2 (UMD), локальная копия — без зависимости от CDN -->
+  <script src="js/vendor/supabase.min.js"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-title">OneBusiness · Дневной отчёт</span>
+      <span class="brand-sub" id="dr-meta-line">Загрузка…</span>
+    </div>
+    <a class="btn" href="index.html" title="Вернуться к дашборду расхождений">← Дашборд</a>
+  </div>
+</header>
+
+<main id="main">
+  <section class="view">
+    <h2 class="view-title">Дневной отчёт бухгалтера</h2>
+    <p class="hint">Сколько за выбранный день реально прошло по выгрузке Артёма (обслуженные
+      компании, счета, услуги) — переведено в часы по нормативу. Бухгалтер добавляет свои
+      комментарии с затраченным временем и может пометить конкретную цифру Артёма как неверную.
+      Кнопка «Письмо Артёму» собирает всё, что за этот день НЕ прошло в выгрузке.</p>
+
+    <div class="filters"><div class="filter-grid">
+      <label>Бухгалтер
+        <select id="dr-accountant"></select>
+      </label>
+      <label>День (по данным выгрузки)
+        <select id="dr-day"></select>
+      </label>
+    </div></div>
+
+    <div id="dr-body"><p class="empty">Загрузка данных…</p></div>
+  </section>
+</main>
+
+<div class="toast" id="toast" hidden></div>
+<div class="loader" id="loader"><div class="spinner"></div><span>Загрузка данных…</span></div>
+
+<script src="js/config.js"></script>
+<script src="js/normalize.js"></script>
+<script src="js/accountants.js"></script>
+<script src="js/daily-report.js"></script>
+</body>
+</html>

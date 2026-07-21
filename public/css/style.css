@@ -471,3 +471,20 @@ body.modal-open { overflow: hidden; }
   .task-line { grid-template-columns: 64px 1fr; }
   .task-line .task-sys { display: none; }
 }
+
+/* ---------------- Дневной отчёт бухгалтера (daily-report.html) ------------- */
+.report-tile .dr-annotate { margin-top: 8px; align-self: flex-start; }
+.dr-annot-form { display: flex; gap: 6px; margin-top: 8px; width: 100%; }
+.dr-annot-form input { flex: 1; min-width: 0; }
+.dr-annot-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; width: 100%; }
+.dr-annot {
+  display: flex; align-items: center; gap: 6px; font-size: 12px;
+  background: var(--warn-bg); color: var(--text); border-radius: 8px; padding: 4px 8px;
+}
+.dr-annot span:nth-child(2) { flex: 1; min-width: 0; }
+.dr-annot .dr-del { font-size: 14px; line-height: 1; }
+.dr-comment-form .filter-grid { margin-bottom: 10px; }
+.dr-comment-form input, .dr-comment-form select {
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+  font: inherit; background: var(--bg); color: var(--text);
+}
