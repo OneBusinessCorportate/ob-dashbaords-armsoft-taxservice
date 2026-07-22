@@ -41,6 +41,9 @@ const state = {
     data: null,              // buildMorningCalls(...)
     bridges: new Map(),      // бухгалтер → accountantBridge (armIds/tins) для drill
     filterAccountant: '',    // фильтр по бухгалтеру
+    filterFrom: '',          // диапазон дат: с какого дня (YYYY-MM-DD, включительно)
+    filterTo: '',            // диапазон дат: по какой день (YYYY-MM-DD, включительно)
+    sortOrder: 'desc',       // порядок дней: 'desc' — новые сверху, 'asc' — старые сверху
     analysisHidden: new Set(),  // дни, у которых блок «анализ созвона» свёрнут
     expandedFeed: new Set(),    // раскрытые drill'ы «показать за что» (date|acc|system)
     feed: new Map(),            // кэш документов drill'а по тому же ключу
@@ -1714,6 +1717,11 @@ function renderCalls() {
   const accs = c.data
     ? [...new Set(c.data.days.flatMap((d) => d.accountants.map((a) => a.accountant)))].sort((a, b) => a.localeCompare(b, 'ru'))
     : [];
+  // границы доступных дат — из всех дней истории созвонов
+  const allDates = c.data ? c.data.days.map((d) => d.date).sort() : [];
+  const minDate = allDates[0] || '';
+  const maxDate = allDates[allDates.length - 1] || '';
+  const hasRange = !!(c.filterFrom || c.filterTo);
   const header = `<div class="filters"><div class="filter-grid">
       <label>Бухгалтер
         <select id="calls-accountant">
@@ -1721,6 +1729,22 @@ function renderCalls() {
           ${accs.map((a) => `<option ${a === c.filterAccountant ? 'selected' : ''}>${esc(a)}</option>`).join('')}
         </select>
       </label>
+      <label>С какого дня
+        <input type="date" id="calls-from" value="${esc(c.filterFrom)}"${minDate ? ` min="${minDate}"` : ''}${maxDate ? ` max="${maxDate}"` : ''}>
+      </label>
+      <label>По какой день
+        <input type="date" id="calls-to" value="${esc(c.filterTo)}"${minDate ? ` min="${minDate}"` : ''}${maxDate ? ` max="${maxDate}"` : ''}>
+      </label>
+      <label>Порядок дней
+        <select id="calls-sort">
+          <option value="desc" ${c.sortOrder === 'desc' ? 'selected' : ''}>Сначала новые</option>
+          <option value="asc" ${c.sortOrder === 'asc' ? 'selected' : ''}>Сначала старые</option>
+        </select>
+      </label>
+    </div>
+    <div class="filter-actions">
+      <button class="btn btn-sm" type="button" id="calls-reset-range"${hasRange ? '' : ' disabled'}>Сбросить период</button>
+      <span class="hint" style="margin:0;">Всего дней в истории: ${allDates.length}${minDate ? ` (${fmtDate(minDate)} — ${fmtDate(maxDate)})` : ''}</span>
     </div></div>`;
 
   if (c.loading) { body.innerHTML = header + '<p class="empty">Загрузка анализа созвонов…</p>'; bindCallsStatic(body); return; }
@@ -1732,13 +1756,22 @@ function renderCalls() {
   }
 
   let days = c.data.days;
+  // фильтр по диапазону дат (включительно), сравнение строк YYYY-MM-DD корректно
+  if (c.filterFrom) days = days.filter((d) => d.date >= c.filterFrom);
+  if (c.filterTo) days = days.filter((d) => d.date <= c.filterTo);
   if (c.filterAccountant) {
     days = days
       .map((d) => ({ ...d, accountants: d.accountants.filter((a) => a.accountant === c.filterAccountant) }))
       .filter((d) => d.accountants.length);
   }
+  // порядок дней: data.days уже отсортирован по убыванию — переворачиваем для 'asc'
+  if (c.sortOrder === 'asc') days = [...days].reverse();
 
-  const list = days.map(callDayCard).join('') || '<p class="empty">Нет созвонов по выбранному бухгалтеру.</p>';
+  const empty = (c.filterFrom || c.filterTo)
+    ? '<p class="empty">Нет созвонов за выбранный период'
+      + (c.filterAccountant ? ' по выбранному бухгалтеру' : '') + '.</p>'
+    : '<p class="empty">Нет созвонов по выбранному бухгалтеру.</p>';
+  const list = days.map(callDayCard).join('') || empty;
   body.innerHTML = header + list;
   bindCallsStatic(body);
   bindCallsDelegated(body);
@@ -1748,6 +1781,22 @@ function renderCalls() {
 function bindCallsStatic(container) {
   const sel = container.querySelector('#calls-accountant');
   if (sel) sel.addEventListener('change', () => { state.calls.filterAccountant = sel.value; renderCalls(); });
+
+  const from = container.querySelector('#calls-from');
+  if (from) from.addEventListener('change', () => { state.calls.filterFrom = from.value; renderCalls(); });
+
+  const to = container.querySelector('#calls-to');
+  if (to) to.addEventListener('change', () => { state.calls.filterTo = to.value; renderCalls(); });
+
+  const sort = container.querySelector('#calls-sort');
+  if (sort) sort.addEventListener('change', () => { state.calls.sortOrder = sort.value; renderCalls(); });
+
+  const reset = container.querySelector('#calls-reset-range');
+  if (reset) reset.addEventListener('click', () => {
+    state.calls.filterFrom = '';
+    state.calls.filterTo = '';
+    renderCalls();
+  });
 }
 
 /** Делегированные действия страницы (один раз на #calls-body) */

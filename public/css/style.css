@@ -193,6 +193,8 @@ body.modal-open { overflow: hidden; }
   min-height: 42px; width: 100%;
 }
 .filter-search { grid-column: 1 / -1; }
+.filter-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; }
+.filter-actions .hint { color: var(--text-2); font-size: 12px; }
 .filter-checks { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 10px; font-size: 13px; }
 .filter-checks label { display: flex; align-items: center; gap: 6px; min-height: 30px; }
 .filter-checks input { width: 18px; height: 18px; }
