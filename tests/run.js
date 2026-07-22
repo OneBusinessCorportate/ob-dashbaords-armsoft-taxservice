@@ -14,7 +14,7 @@ const read = (f) => fs.readFileSync(path.join(base, f), 'utf8');
 
 // заглушки браузерных глобалов, которые нужны загружаемым модулям
 const STUB = 'function todayStr(){return "2026-07-20";}\n';
-const SRC = ['config.js', 'normalize.js', 'tasksync.js', 'accountants.js', 'dailyreport.js'].map(read).join('\n');
+const SRC = ['config.js', 'normalize.js', 'tasksync.js', 'accountants.js', 'dailyreport.js', 'morningcalls.js'].map(read).join('\n');
 
 let passed = 0;
 const fails = [];
@@ -174,6 +174,71 @@ ok(merged.countsConfirmed, 'merge: цифры подтверждены');
 const mergedNone = mergeAccountantFeedback(rep.days[1], null);
 eq(mergedNone.grandTotalMinutes, rep.days[1].totalMinutes, 'merge без фидбэка: итог = отчёт Артёма');
 eq(mergedNone.status, 'pending', 'merge без фидбэка: статус pending');
+
+// ---- morningcalls: mcShiftDate ----
+eq(mcShiftDate('2026-06-23', 0), '2026-06-23', 'mcShiftDate 0 = та же дата');
+eq(mcShiftDate('2026-06-23', -1), '2026-06-22', 'mcShiftDate -1 = день назад');
+eq(mcShiftDate('2026-07-01', -1), '2026-06-30', 'mcShiftDate -1 через границу месяца');
+
+// ---- morningcalls: mcSystemBreakdown ----
+const bdMap = new Map([['report', 2], ['tax_invoice_issued', 3], ['tax_invoice_received', 1], ['invoice_issued', 5], ['invoice_received', 4]]);
+const bd = mcSystemBreakdown(bdMap);
+eq(bd.tax.total, 6, 'breakdown TaxService = 2+3+1');
+eq(bd.arm.total, 9, 'breakdown ArmSoft = 5+4');
+eq(bd.total, 15, 'breakdown total = tax + arm');
+eq(mcSystemBreakdown(null).total, 0, 'breakdown пустого дня = 0');
+
+// ---- morningcalls: mcActualDateRange ----
+const mcComments = [
+  { accountant_name: 'Ann', company_name: 'Alpha LLC', comment_date: '2026-06-22', comment: 'Сдала отчёт', unaccounted_work: 'Консультация' },
+  { accountant_name: 'Ann', company_name: 'Beta LLC',  comment_date: '2026-06-23', comment: 'Выписала 3 инвойса', unaccounted_work: null },
+  { accountant_name: 'Bob', company_name: 'Gamma LLC', comment_date: '2026-06-23', comment: 'Работал с накладными', unaccounted_work: null },
+];
+const range0 = mcActualDateRange(mcComments, 0);
+eq(range0.from, '2026-06-22', 'range from = самая ранняя дата созвона');
+eq(range0.to, '2026-06-23', 'range to = самая поздняя дата созвона');
+const range1 = mcActualDateRange(mcComments, 1);
+eq(range1.from, '2026-06-21', 'range со сдвигом 1 сдвигает from на день назад');
+eq(mcActualDateRange([], 0).from, null, 'range без комментариев = null');
+
+// ---- morningcalls: buildMorningCalls (offset 0) ----
+const mcActivity = new Map([
+  ['Ann', [
+    { activity_date: '2026-06-22', category: 'report', cnt: 1 },
+    { activity_date: '2026-06-23', category: 'invoice_issued', cnt: 3 },
+    { activity_date: '2026-06-23', category: 'tax_invoice_received', cnt: 2 },
+  ]],
+  ['Bob', []],  // у Боба нет привязок → нет факта
+]);
+const mc = buildMorningCalls(mcComments, mcActivity, 0);
+eq(mc.dayCount, 2, 'buildMorningCalls: 2 дня созвонов');
+eq(mc.days[0].date, '2026-06-23', 'дни от новых к старым');
+const d23 = mc.days[0];
+eq(d23.accountants.length, 2, '23-е: два бухгалтера (Ann, Bob)');
+eq(d23.accountants[0].accountant, 'Ann', 'бухгалтеры по алфавиту (Ann первый)');
+const annCall = d23.accountants.find((x) => x.accountant === 'Ann');
+eq(annCall.arm.invoice_issued, 3, 'Ann 23-е: 3 счёта ArmSoft выставлено');
+eq(annCall.tax.tax_invoice_received, 2, 'Ann 23-е: 2 налог. счёта получено');
+eq(annCall.tax.report, 0, 'Ann 23-е: отчётов нет (report был 22-го)');
+ok(annCall.hasActual, 'Ann 23-е: есть факт в выгрузке');
+eq(annCall.said.length, 1, 'Ann 23-е: сказал про 1 компанию');
+eq(annCall.said[0].company_name, 'Beta LLC', 'Ann 23-е: компания Beta LLC');
+const bobCall = d23.accountants.find((x) => x.accountant === 'Bob');
+ok(!bobCall.hasActual, 'Bob 23-е: нет факта в выгрузке');
+eq(d23.analysis.accountantCount, 2, 'анализ 23-го: 2 бухгалтера');
+eq(d23.analysis.saidNoActual, 1, 'анализ 23-го: 1 сказал без факта (Bob)');
+eq(d23.analysis.armTotal, 3, 'анализ 23-го: ArmSoft всего 3');
+eq(d23.analysis.taxTotal, 2, 'анализ 23-го: TaxService всего 2');
+const d22 = mc.days[1];
+const annCall22 = d22.accountants.find((x) => x.accountant === 'Ann');
+eq(annCall22.tax.report, 1, 'Ann 22-е: 1 сданный отчёт');
+eq(annCall22.actualTotal, 1, 'Ann 22-е: всего 1 операция');
+
+// ---- morningcalls: buildMorningCalls (offset 1 = вчерашняя работа) ----
+const mcOff = buildMorningCalls(mcComments, mcActivity, 1);
+const annOff = mcOff.days[0].accountants.find((x) => x.accountant === 'Ann'); // созвон 23-го
+eq(annOff.actualDate, '2026-06-22', 'offset 1: факт берётся за 22-е (день до созвона 23-го)');
+eq(annOff.tax.report, 1, 'offset 1: у Ann на 22-е есть 1 отчёт');
 `;
 
 try {

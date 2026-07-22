@@ -33,6 +33,18 @@ const state = {
     feed: new Map(),       // кэш документов drill'а: «date|category» → {loading,error,rows}
     letter: '',            // сгенерированное письмо Артёму
   },
+  // --- страница «Утренние созвоны» (анализ по дням/бухгалтерам) ---
+  calls: {
+    loaded: false,
+    loading: false,
+    error: null,
+    data: null,              // buildMorningCalls(...)
+    bridges: new Map(),      // бухгалтер → accountantBridge (armIds/tins) для drill
+    filterAccountant: '',    // фильтр по бухгалтеру
+    analysisHidden: new Set(),  // дни, у которых блок «анализ созвона» свёрнут
+    expandedFeed: new Set(),    // раскрытые drill'ы «показать за что» (date|acc|system)
+    feed: new Map(),            // кэш документов drill'а по тому же ключу
+  },
   view: 'summary',
   deltaShown: 100,    // пагинация списков
   reviewShown: 50,
@@ -89,6 +101,7 @@ const NAV = [
   { id: 'review', label: 'Эмилия', icon: '✓' },
   { id: 'artyom', label: 'ТЗ Артёму', icon: '✎' },
   { id: 'meetings', label: 'Встречи', icon: '☰' },
+  { id: 'calls', label: 'Созвоны', icon: '☎' },
 ];
 
 function renderNav() {
@@ -111,6 +124,10 @@ function switchView(v) {
   // «Отчёт по дням» грузится лениво при первом открытии (тяжёлый RPC по дням)
   if (v === 'daily' && !state.daily.report && !state.daily.loading) {
     loadDailyReport(state.daily.accountant || DAILY_REPORT.defaultAccountant);
+  }
+  // «Утренние созвоны» — тоже ленивая загрузка (RPC по каждому бухгалтеру)
+  if (v === 'calls' && !state.calls.loaded && !state.calls.loading) {
+    loadMorningCalls();
   }
 }
 
@@ -1502,6 +1519,275 @@ function renderMeetings() {
     </div>`).join('');
 
   $('#meetings-list').innerHTML = html || '<p class="empty">Нет данных встреч за выбранный период</p>';
+}
+
+/* ---------------------- Утренние созвоны (анализ) ------------------------- */
+/**
+ * Загрузка данных страницы «Утренние созвоны»: по каждому бухгалтеру, который
+ * есть в утренних комментариях, тянем фактическую активность из выгрузки Артёма
+ * (RPC ob_accountant_daily_activity) за диапазон дат созвонов (со сдвигом
+ * MORNING_CALLS.actualsDayOffset). Ленивая, вызывается при открытии вкладки.
+ */
+async function loadMorningCalls() {
+  const c = state.calls;
+  if (c.loaded || c.loading) return;
+  c.loading = true;
+  c.error = null;
+  renderCalls();
+  try {
+    if (!state.accCompare) state.accCompare = computeAccountantComparison(state.src);
+    const comments = state.src.comments || [];
+    const offset = MORNING_CALLS.actualsDayOffset || 0;
+    const bridges = new Map();
+    const activityByAccountant = new Map();
+
+    const accountants = [...new Set(
+      comments.map((x) => x.accountant_name || x.accountant_email || 'Без имени'),
+    )];
+
+    if (comments.length) {
+      const { from, to } = mcActualDateRange(comments, offset);
+      await Promise.all(accountants.map(async (acc) => {
+        const bridge = accountantBridge(state.accCompare.rows, acc);
+        bridges.set(acc, bridge);
+        if (!bridge.armIds.length && !bridge.tins.length) {
+          activityByAccountant.set(acc, []);
+          return;
+        }
+        try {
+          const rows = await fetchAccountantDailyActivity(bridge.armIds, bridge.tins, from, to);
+          activityByAccountant.set(acc, rows);
+        } catch (e) {
+          console.error('Активность бухгалтера', acc, e);
+          activityByAccountant.set(acc, []);
+        }
+      }));
+    }
+
+    c.bridges = bridges;
+    c.data = buildMorningCalls(comments, activityByAccountant, offset);
+    // блок «анализ» открыт/свёрнут по умолчанию из конфигурации
+    if (!MORNING_CALLS.analysisOpenByDefault) {
+      c.data.days.forEach((d) => c.analysisHidden.add(d.date));
+    }
+    c.loaded = true;
+  } catch (e) {
+    console.error(e);
+    c.error = e.message;
+  } finally {
+    c.loading = false;
+    renderCalls();
+  }
+}
+
+/** Короткий текстовый вывод анализа дня «сказано ↔ факт выгрузки Артёма» */
+function callAnalysisText(day) {
+  const a = day.analysis;
+  const offset = MORNING_CALLS.actualsDayOffset || 0;
+  const when = offset
+    ? `за ${fmtDate(day.actualDate)} (работа накануне созвона)`
+    : `за ${fmtDate(day.date)}`;
+  const parts = [];
+  parts.push(`Отчитались ${a.accountantCount} бухгалтер(ов) по ${a.companyCount} компани(ям).`);
+  parts.push(`По выгрузке Артёма ${when}: ${fmtNum(a.reportCount)} сданных отчётов, `
+    + `${fmtNum(a.taxTotal)} операций TaxService и ${fmtNum(a.armTotal)} операций ArmSoft.`);
+  if (a.saidNoActual > 0) {
+    parts.push(`⚠ У ${a.saidNoActual} бухгалтер(ов) нет ни одной операции в выгрузке ${when} — стоит проверить.`);
+  } else if (a.accountantCount) {
+    parts.push('✓ У всех отчитавшихся есть факт в выгрузке.');
+  }
+  return parts.join(' ');
+}
+
+/** Строка одной цифры факта (услуга → количество) */
+function mcMetricLine(label, n) {
+  return `<div class="mc-metric${n ? '' : ' mc-metric-zero'}"><span>${label}</span><b>${fmtNum(n)}</b></div>`;
+}
+
+/** Блок drill «показать за что» (ленивая загрузка документов) для одной системы */
+function callFeedBlock(key) {
+  const c = state.calls;
+  if (!c.expandedFeed.has(key)) return '';
+  const feed = c.feed.get(key);
+  let inner;
+  if (!feed || feed.loading) inner = '<p class="muted">Загрузка документов…</p>';
+  else if (feed.error) inner = `<p class="red">Ошибка: ${esc(feed.error)}</p>`;
+  else if (!feed.rows.length) inner = '<p class="muted">Документов не найдено.</p>';
+  else inner = `<div class="dr-feed-head">${feed.rows.length}${feed.rows.length >= 400 ? '+' : ''} документ(ов):</div>`
+    + feed.rows.map(dailyFeedLine).join('');
+  return `<div class="dr-feed mc-feed">${inner}</div>`;
+}
+
+/** Карточка одного бухгалтера внутри дня созвона (сказал ↔ TaxService ↔ ArmSoft) */
+function callAccountantCard(day, acc) {
+  const { taxIndex, armIndex } = state._indexes;
+  const chip = (m, label) => `<span class="chip ${m.found ? (m.quality === 'fuzzy' ? 'chip-fuzzy' : 'chip-yes') : 'chip-no'}">${m.found ? (m.quality === 'fuzzy' ? '≈' : '✓') : '✗'} ${label}</span>`;
+
+  const said = acc.said.map((s) => {
+    const hasName = !!s.company_name;
+    const tm = hasName ? findMatch(taxIndex, { hvhh: null, names: [s.company_name] }) : null;
+    const arm = hasName ? findMatch(armIndex, { hvhh: null, names: [s.company_name] }) : null;
+    return `<div class="mc-said-row">
+      <div class="mc-said-company"><b>${esc(s.company_name || '—')}</b>${hasName ? chip(tm, 'TaxService') + chip(arm, 'ArmSoft') : ''}</div>
+      ${s.comment ? `<div class="muted">${esc(s.comment)}</div>` : ''}
+      ${s.unaccounted ? `<div class="item-comment">(!) не отражено: ${esc(s.unaccounted)}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  const taxKey = `${day.date}|${acc.accountant}|TaxService`;
+  const armKey = `${day.date}|${acc.accountant}|ArmSoft`;
+
+  return `<div class="item-card mc-acc${acc.hasActual ? '' : ' mc-acc-idle'}">
+    <div class="item-head">
+      <strong>${esc(acc.accountant)}</strong>
+      <span class="badge ${acc.hasActual ? 'badge-green' : 'badge-yellow'}">
+        ${acc.hasActual ? 'есть факт в выгрузке' : 'нет факта в выгрузке'}
+      </span>
+    </div>
+    <div class="mc-cols">
+      <div class="mc-col mc-col-said">
+        <div class="mc-col-title">🗣 Сказал на созвоне</div>
+        ${said || '<p class="muted">—</p>'}
+      </div>
+      <div class="mc-col mc-col-tax">
+        <div class="mc-col-title">📊 Факт TaxService · ${fmtDate(acc.actualDate)}</div>
+        ${mcMetricLine('📄 сдано отчётов', acc.tax.report)}
+        ${mcMetricLine('🧾 налог. счета выставлены', acc.tax.tax_invoice_issued)}
+        ${mcMetricLine('📥 налог. счета получены', acc.tax.tax_invoice_received)}
+        ${acc.tax.total ? `<button class="btn btn-sm mc-drill" data-mc-drill="${esc(taxKey)}">${c_isFeedOpen(taxKey) ? '▾ скрыть' : '▸ показать за что'}</button>` : ''}
+        ${callFeedBlock(taxKey)}
+      </div>
+      <div class="mc-col mc-col-arm">
+        <div class="mc-col-title">📊 Факт ArmSoft · ${fmtDate(acc.actualDate)}</div>
+        ${mcMetricLine('🧾 счета выставлены', acc.arm.invoice_issued)}
+        ${mcMetricLine('📥 счета получены', acc.arm.invoice_received)}
+        ${acc.arm.total ? `<button class="btn btn-sm mc-drill" data-mc-drill="${esc(armKey)}">${c_isFeedOpen(armKey) ? '▾ скрыть' : '▸ показать за что'}</button>` : ''}
+        ${callFeedBlock(armKey)}
+      </div>
+    </div>
+  </div>`;
+}
+
+const c_isFeedOpen = (key) => state.calls.expandedFeed.has(key);
+
+/** Карточка одного дня созвона: свёртываемый анализ + карточки бухгалтеров */
+function callDayCard(day) {
+  const c = state.calls;
+  const hidden = c.analysisHidden.has(day.date);
+  const a = day.analysis;
+  const offset = MORNING_CALLS.actualsDayOffset || 0;
+  const whenSub = offset ? `за ${fmtDate(day.actualDate)}` : `за ${fmtDate(day.date)}`;
+
+  const analysisBlock = hidden ? '' : `
+    <div class="mc-analysis">
+      <div class="report-tiles mc-tiles">
+        <div class="report-tile tile-gray"><span class="tile-label">Отчитались</span>
+          <span class="tile-value">${a.accountantCount}</span><span class="tile-sub">бухгалтеров · ${a.companyCount} компаний</span></div>
+        <div class="report-tile tile-blue"><span class="tile-label">Факт TaxService</span>
+          <span class="tile-value">${fmtNum(a.taxTotal)}</span><span class="tile-sub">${fmtNum(a.reportCount)} отчётов + счета</span></div>
+        <div class="report-tile tile-blue"><span class="tile-label">Факт ArmSoft</span>
+          <span class="tile-value">${fmtNum(a.armTotal)}</span><span class="tile-sub">счета выст./получ. ${whenSub}</span></div>
+        <div class="report-tile tile-${a.saidNoActual ? 'yellow' : 'green'}"><span class="tile-label">Сказали без факта</span>
+          <span class="tile-value">${a.saidNoActual}</span><span class="tile-sub">нет работы в выгрузке</span></div>
+      </div>
+      <p class="mc-analysis-text">${esc(callAnalysisText(day))}</p>
+    </div>`;
+
+  const cards = day.accountants.map((acc) => callAccountantCard(day, acc)).join('');
+
+  return `<div class="meeting-day mc-day" id="mc-day-${day.date}">
+    <div class="mc-day-head">
+      <h3 class="block-title">Созвон ${fmtDate(day.date)} <span class="count-pill">${day.accountants.length}</span></h3>
+      <button class="btn btn-sm" data-mc-toggle="${day.date}">${hidden ? '▸ показать анализ созвона' : '▾ скрыть анализ созвона'}</button>
+    </div>
+    ${analysisBlock}
+    <div class="mc-accs">${cards}</div>
+  </div>`;
+}
+
+/** Полный рендер страницы «Утренние созвоны» */
+function renderCalls() {
+  const body = $('#calls-body');
+  if (!body) return;
+  const c = state.calls;
+
+  const accs = c.data
+    ? [...new Set(c.data.days.flatMap((d) => d.accountants.map((a) => a.accountant)))].sort((a, b) => a.localeCompare(b, 'ru'))
+    : [];
+  const header = `<div class="filters"><div class="filter-grid">
+      <label>Бухгалтер
+        <select id="calls-accountant">
+          <option value="">Все бухгалтеры</option>
+          ${accs.map((a) => `<option ${a === c.filterAccountant ? 'selected' : ''}>${esc(a)}</option>`).join('')}
+        </select>
+      </label>
+    </div></div>`;
+
+  if (c.loading) { body.innerHTML = header + '<p class="empty">Загрузка анализа созвонов…</p>'; bindCallsStatic(body); return; }
+  if (c.error) { body.innerHTML = header + `<p class="empty red">Ошибка: ${esc(c.error)}</p>`; bindCallsStatic(body); return; }
+  if (!c.data || !c.data.dayCount) {
+    body.innerHTML = header + '<p class="empty">Нет данных утренних созвонов (таблица accountant_daily_comments пуста).</p>';
+    bindCallsStatic(body);
+    return;
+  }
+
+  let days = c.data.days;
+  if (c.filterAccountant) {
+    days = days
+      .map((d) => ({ ...d, accountants: d.accountants.filter((a) => a.accountant === c.filterAccountant) }))
+      .filter((d) => d.accountants.length);
+  }
+
+  const list = days.map(callDayCard).join('') || '<p class="empty">Нет созвонов по выбранному бухгалтеру.</p>';
+  body.innerHTML = header + list;
+  bindCallsStatic(body);
+  bindCallsDelegated(body);
+}
+
+/** Слушатели, навешиваемые при каждом полном рендере (селект бухгалтера) */
+function bindCallsStatic(container) {
+  const sel = container.querySelector('#calls-accountant');
+  if (sel) sel.addEventListener('change', () => { state.calls.filterAccountant = sel.value; renderCalls(); });
+}
+
+/** Делегированные действия страницы (один раз на #calls-body) */
+function bindCallsDelegated(container) {
+  if (container._calls_bound) return;
+  container._calls_bound = true;
+  container.addEventListener('click', (e) => {
+    const toggle = e.target.closest('[data-mc-toggle]');
+    if (toggle) {
+      const date = toggle.dataset.mcToggle;
+      const set = state.calls.analysisHidden;
+      set.has(date) ? set.delete(date) : set.add(date);
+      renderCalls();
+      return;
+    }
+    const drill = e.target.closest('[data-mc-drill]');
+    if (drill) { toggleCallFeed(drill.dataset.mcDrill); return; }
+  });
+}
+
+/** Раскрыть/свернуть список документов за день+бухгалтер+система (drill) */
+async function toggleCallFeed(key) {
+  const c = state.calls;
+  if (c.expandedFeed.has(key)) { c.expandedFeed.delete(key); renderCalls(); return; }
+  c.expandedFeed.add(key);
+  const [date, accountant, system] = key.split('|');
+  if (!c.feed.has(key)) {
+    c.feed.set(key, { loading: true, rows: [] });
+    renderCalls();
+    try {
+      const bridge = c.bridges.get(accountant) || { armIds: [], tins: [] };
+      const day = c.data.days.find((d) => d.date === date);
+      const actualDate = day ? day.actualDate : date;
+      const all = await fetchAccountantDayFeed(bridge.armIds, bridge.tins, actualDate, null, 400);
+      c.feed.set(key, { loading: false, rows: all.filter((r) => r.system === system) });
+    } catch (e) {
+      c.feed.set(key, { loading: false, error: e.message, rows: [] });
+    }
+  }
+  renderCalls();
 }
 
 /* ------------------------- Тултипы на заголовках -------------------------- */
