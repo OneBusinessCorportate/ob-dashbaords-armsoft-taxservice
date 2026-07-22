@@ -275,6 +275,105 @@ const MORNING_CALLS = {
   analysisOpenByDefault: true,
 };
 
+/* ----------------------------------------------------------------------------
+ * ПОЛНОЕ сопоставление слов созвона с выгрузкой Артёма (задача владельца:
+ * «take every column of OB Artyom project ... every word they say in the
+ * morning call ... do not miss even a small caught information»).
+ *
+ * MC_CATEGORIES — ВСЕ рабочие разделы выгрузки Артёма (26 категорий, покрывают
+ * практически каждый «рабочий» столбец armsoft_db). Каждая категория:
+ *   system   — 'ArmSoft' | 'TaxService';
+ *   label    — русская подпись;
+ *   icon     — значок;
+ *   legacy   — входит ли в старую сводку из 5 категорий (для совместимости);
+ *   measurable — есть ли за ней реальная таблица-счётчик в выгрузке
+ *                (false → работу структурно нельзя увидеть в выгрузке);
+ *   patterns — подстроки (в нижнем регистре, ё→е) для распознавания этой работы
+ *              в СЛОВАХ бухгалтера на созвоне. Дополняйте по итогам разбора
+ *              реальных созвонов — правило меняется здесь, без правки кода.
+ *
+ * Источник счётчиков — RPC public.ob_accountant_activity_full (см.
+ * sql/2026-07-22_morning_calls_full_activity.sql). Ключи category здесь
+ * СОВПАДАЮТ с category из RPC.
+ * -------------------------------------------------------------------------- */
+const MC_CATEGORIES = {
+  // ---- ArmSoft ----
+  invoice_issued:     { system: 'ArmSoft', label: 'Счета/инвойсы выставленные', icon: '🧾', legacy: true,  measurable: true,
+    patterns: ['инвойс', 'выставил счет', 'выставила счет', 'выписал счет', 'выписала счет', 'счет выставл', 'счета выставл', 'реализац', 'продаж товар', 'отгруз'] },
+  invoice_received:   { system: 'ArmSoft', label: 'Счета полученные', icon: '📥', legacy: true, measurable: true,
+    patterns: ['получ счет', 'счет получ', 'счета получ', 'входящ счет', 'входящ инвойс', 'получ инвойс', 'приход счет', 'обработ входящ'] },
+  transfer_invoice:   { system: 'ArmSoft', label: 'Накладные / передаточные', icon: '📦', legacy: false, measurable: true,
+    patterns: ['наклад', 'передаточн', 'перемещен', 'товарно-транспортн'] },
+  purchase_doc:       { system: 'ArmSoft', label: 'Документы закупки', icon: '🛒', legacy: false, measurable: true,
+    patterns: ['закуп', 'приобрет', 'покупк', 'поставк', 'приход товар', 'снабжен'] },
+  cash_receipt:       { system: 'ArmSoft', label: 'Касса (ArmSoft)', icon: '💵', legacy: false, measurable: true,
+    patterns: ['касс', 'наличн', 'пко', 'рко', 'приходн ордер', 'расходн ордер', 'кассов чек', 'кассов ордер'] },
+  reconciliation_act: { system: 'ArmSoft', label: 'Акты сверки', icon: '🔄', legacy: false, measurable: true,
+    patterns: ['сверк', 'акт сверк', 'взаиморасч'] },
+  document_journal:   { system: 'ArmSoft', label: 'Документы в журнале', icon: '📚', legacy: false, measurable: true,
+    patterns: ['провел документ', 'провела документ', 'занес документ', 'оформил документ', 'оформила документ', 'внес документ', 'обработ документ'] },
+  journal_operation:  { system: 'ArmSoft', label: 'Бухгалтерские проводки', icon: '🧮', legacy: false, measurable: true,
+    patterns: ['проводк', 'провел операц', 'разнес', 'бух справк', 'бухгалтерск справк', 'ручн операц', 'сделал операц', 'сделала операц'] },
+  fixed_asset:        { system: 'ArmSoft', label: 'Основные средства', icon: '🏗', legacy: false, measurable: true,
+    patterns: ['основн средств', 'основных средств', 'амортизац', 'введен в эксплуат', 'поставил на учет ос'] },
+  arm_employee:       { system: 'ArmSoft', label: 'Кадры (ArmSoft)', icon: '🧑‍💼', legacy: false, measurable: true,
+    patterns: ['кадр', 'штат', 'прием на работ', 'табел'] },
+  material:           { system: 'ArmSoft', label: 'Товары / материалы / остатки', icon: '📦', legacy: false, measurable: true,
+    patterns: ['материал', 'товар', 'номенклатур', 'склад', 'остатк', 'инвентар', 'оприход'] },
+  partner:            { system: 'ArmSoft', label: 'Контрагенты', icon: '🤝', legacy: false, measurable: true,
+    patterns: ['контрагент', 'партнер', 'поставщик', 'нов клиент', 'завел клиент', 'завела клиент', 'добавил клиент', 'добавила клиент'] },
+  vat_calc:           { system: 'ArmSoft', label: 'Расчёт НДС', icon: '📐', legacy: false, measurable: true,
+    patterns: ['ндс', 'расчет ндс', 'декларац ндс'] },
+  // ---- TaxService ----
+  report:             { system: 'TaxService', label: 'Сдача налоговых отчётов', icon: '📄', legacy: true, measurable: true,
+    patterns: ['отчет', 'сдал форм', 'сдала форм', 'декларац', 'подал деклар', 'подала деклар', 'сдача отчет', 'квартальн', 'годов отчет', 'месячн отчет', 'сдал в налог', 'сдала в налог'] },
+  saved_form:         { system: 'TaxService', label: 'Подготовка / черновики отчётов', icon: '📝', legacy: false, measurable: true,
+    patterns: ['подготов отчет', 'подготов деклар', 'черновик', 'заполн форм', 'начал отчет', 'сохранил форм', 'готовл отчет', 'подготовил отчет', 'подготовила отчет'] },
+  tax_invoice_issued: { system: 'TaxService', label: 'Налоговые э-счета выставленные', icon: '🧾', legacy: true, measurable: true,
+    patterns: ['налог счет выстав', 'эл счет', 'электрон счет', 'выставил налог', 'выставила налог', 'э-счет', 'налог инвойс выстав', 'эсф'] },
+  tax_invoice_received:{ system: 'TaxService', label: 'Налоговые э-счета полученные', icon: '📥', legacy: true, measurable: true,
+    patterns: ['получ налог счет', 'налог счет получ', 'получ э-счет', 'входящ налог счет', 'принял налог счет', 'подтверд налог счет', 'подтвердил счет', 'подтвердила счет'] },
+  tax_doc_issued:     { system: 'TaxService', label: 'Налоговые накладные (выст.)', icon: '📤', legacy: false, measurable: true,
+    patterns: ['налог накладн', 'товарн накладн выстав'] },
+  tax_doc_received:   { system: 'TaxService', label: 'Налоговые накладные (получ.)', icon: '📥', legacy: false, measurable: true,
+    patterns: ['получ накладн', 'вход накладн'] },
+  eeu_transaction:    { system: 'TaxService', label: 'Операции ЕАЭС / импорт-экспорт', icon: '🌍', legacy: false, measurable: true,
+    patterns: ['еаэс', 'ввоз', 'вывоз', 'импорт', 'экспорт', 'таможн'] },
+  tax_employee:       { system: 'TaxService', label: 'Сотрудники / зарплата', icon: '👥', legacy: false, measurable: true,
+    patterns: ['зарплат', 'заработн', 'сотрудник', 'начислен зп', 'начислил зарплат', 'начислила зарплат', 'выплат зарплат', 'прием сотрудник', 'увольнен', 'регистрац сотрудник'] },
+  cashbook:           { system: 'TaxService', label: 'Кассовая книга (налоговая)', icon: '📕', legacy: false, measurable: true,
+    patterns: ['кассов книг', 'регистрац касс'] },
+  hdm_fiscal:         { system: 'TaxService', label: 'ХДМ / фискальные данные', icon: '🖨', legacy: false, measurable: true,
+    patterns: ['хдм', 'фискал', 'кассов аппарат', 'ккм'] },
+  ledger_entry:       { system: 'TaxService', label: 'Лицевой счёт / налоговый регистр', icon: '📒', legacy: false, measurable: true,
+    patterns: ['лицев счет', 'налог регистр', 'налог обязательств', 'начислен налог', 'сверк с налог'] },
+  penalty:            { system: 'TaxService', label: 'Пени / штрафы', icon: '⚠', legacy: false, measurable: true,
+    patterns: ['пени', 'штраф', 'санкц', 'неустойк'] },
+  unified_account:    { system: 'TaxService', label: 'Единый счёт', icon: '🏦', legacy: false, measurable: true,
+    patterns: ['единый счет', 'перечисл в бюджет', 'оплат налог', 'уплат налог', 'оплатил налог', 'оплатила налог', 'заплатил налог', 'перечислил налог', 'перечислила налог'] },
+  // ---- виртуальная категория: работа без отдельной таблицы-счётчика в выгрузке ----
+  application:        { system: 'TaxService', label: 'Заявления / ходатайства', icon: '📨', legacy: false, measurable: false,
+    patterns: ['заявлен', 'ходатайств', 'обращен в налог'] },
+};
+
+/* Порядок вывода категорий (легаси-5 сначала, дальше по системам). */
+const MC_CATEGORY_ORDER = [
+  'report', 'tax_invoice_issued', 'tax_invoice_received', 'invoice_issued', 'invoice_received',
+  'transfer_invoice', 'purchase_doc', 'cash_receipt', 'reconciliation_act',
+  'document_journal', 'journal_operation', 'fixed_asset', 'arm_employee', 'material', 'partner', 'vat_calc',
+  'tax_doc_issued', 'tax_doc_received', 'saved_form', 'eeu_transaction', 'tax_employee',
+  'cashbook', 'hdm_fiscal', 'ledger_entry', 'penalty', 'unified_account', 'application',
+];
+
+/* Работа, которую выгрузка Артёма структурно НЕ видит (устные согласования,
+ * консультации, корректировки прошлых периодов и т.п.). Зеркало
+ * TASK_SYNC.tasksNotInExport.patterns — держим здесь для наглядности созвонов. */
+const MC_STRUCTURAL_PATTERNS = [
+  'консультац', 'устн', 'согласован', 'созвон', 'звонок', 'телефон', 'встреч',
+  'корректировк прошл', 'прошлых периодов', 'прошлого периода', 'обучен',
+  'внутрен', 'переписк', 'напомнил', 'напомнила', 'уточнил', 'уточнила',
+];
+
 /* Настройки дневного отчёта */
 const DAILY_REPORT = {
   // Кого показываем по умолчанию на странице (пилот). Самый «информативный»

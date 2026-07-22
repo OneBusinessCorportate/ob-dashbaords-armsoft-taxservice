@@ -1558,7 +1558,9 @@ async function loadMorningCalls() {
           return;
         }
         try {
-          const rows = await fetchAccountantDailyActivity(bridge.armIds, bridge.tins, from, to);
+          // ПОЛНАЯ активность по всем 26 категориям выгрузки Артёма
+          // (счета/накладные/касса/сверки/проводки/НДС/зарплата/ЕАЭС/пени…).
+          const rows = await fetchAccountantActivityFull(bridge.armIds, bridge.tins, from, to);
           activityByAccountant.set(acc, rows);
         } catch (e) {
           console.error('Активность бухгалтера', acc, e);
@@ -1592,12 +1594,15 @@ function callAnalysisText(day) {
     : `за ${fmtDate(day.date)}`;
   const parts = [];
   parts.push(`Отчитались ${a.accountantCount} бухгалтер(ов) по ${a.companyCount} компани(ям).`);
-  parts.push(`По выгрузке Артёма ${when}: ${fmtNum(a.reportCount)} сданных отчётов, `
-    + `${fmtNum(a.taxTotal)} операций TaxService и ${fmtNum(a.armTotal)} операций ArmSoft.`);
-  if (a.saidNoActual > 0) {
-    parts.push(`⚠ У ${a.saidNoActual} бухгалтер(ов) нет ни одной операции в выгрузке ${when} — стоит проверить.`);
-  } else if (a.accountantCount) {
-    parts.push('✓ У всех отчитавшихся есть факт в выгрузке.');
+  parts.push(`По выгрузке Артёма ${when}: ${fmtNum(a.fullActualTotal)} операций в ${a.categoriesUsed} раздел(ах) `
+    + `(в т.ч. ${fmtNum(a.reportCount)} сданных отчётов, ${fmtNum(a.taxTotal)} операций TaxService и ${fmtNum(a.armTotal)} операций ArmSoft).`);
+  parts.push(`Разобрано слов созвона: ${a.claimTotal} — ✓ ${a.claimConfirmed} подтверждено, `
+    + `✗ ${a.claimMissing} нет в выгрузке, ◌ ${a.claimStructural} вне выгрузки, ? ${a.claimUnclassified} не распознано.`);
+  if (a.claimMissing > 0) {
+    parts.push(`⚠ ${a.claimMissing} задач(и) со слов бухгалтеров не подтверждаются выгрузкой — стоит проверить.`);
+  }
+  if (a.unmentionedTotal > 0) {
+    parts.push(`🔎 В выгрузке ${when} есть ${fmtNum(a.unmentionedTotal)} операций, о которых на созвоне не сказали.`);
   }
   return parts.join(' ');
 }
@@ -1621,11 +1626,55 @@ function callFeedBlock(key) {
   return `<div class="dr-feed mc-feed">${inner}</div>`;
 }
 
-/** Карточка одного бухгалтера внутри дня созвона (сказал ↔ TaxService ↔ ArmSoft) */
+/** Вердикт одного слова/задачи созвона → значок, подпись, цвет */
+const MC_CLAIM_VERDICTS = {
+  confirmed:    { icon: '✓', label: 'подтверждено в выгрузке', cls: 'mc-claim-ok' },
+  missing:      { icon: '✗', label: 'сказал — нет в выгрузке', cls: 'mc-claim-miss' },
+  not_in_export:{ icon: '◌', label: 'вне выгрузки (ожидаемо)', cls: 'mc-claim-struct' },
+  no_source:    { icon: '≈', label: 'нет отдельного раздела в выгрузке', cls: 'mc-claim-nosrc' },
+  unclassified: { icon: '?', label: 'не распознано — проверить вручную', cls: 'mc-claim-unk' },
+};
+
+/** Значок+подпись категории выгрузки (из MC_CATEGORIES) */
+function mcCatLabel(key) {
+  const c = MC_CATEGORIES[key];
+  return c ? `${c.icon} ${c.label}` : key;
+}
+
+/** Одна строка «слово бухгалтера ↔ факт в выгрузке» */
+function mcClaimRow(day, acc, claim, i) {
+  const v = MC_CLAIM_VERDICTS[claim.verdict] || MC_CLAIM_VERDICTS.unclassified;
+  // категории, по которым есть факт (кликабельны — drill за конкретными документами)
+  const matched = (claim.matchedCats || []).map((cat) => {
+    const key = `${day.date}|${acc.accountant}|${cat}`;
+    const n = (acc.fullCats.find((f) => f.category === cat) || {}).count || 0;
+    return `<button class="mc-cat-chip mc-cat-ok mc-drill" data-mc-drill="${esc(key)}" title="показать документы">${mcCatLabel(cat)} · ${fmtNum(n)}${c_isFeedOpen(key) ? ' ▾' : ''}</button>`;
+  }).join('');
+  // распознанные категории без факта (сказал, но в выгрузке за день нет)
+  const missing = (claim.measurableCats || []).filter((c) => !(claim.matchedCats || []).includes(c))
+    .map((cat) => `<span class="mc-cat-chip mc-cat-miss">${mcCatLabel(cat)} · 0</span>`).join('');
+  // прочие распознанные категории без таблицы-счётчика (заявления и т.п.)
+  const other = (claim.categories || []).filter((c) => MC_CATEGORIES[c] && !MC_CATEGORIES[c].measurable)
+    .map((cat) => `<span class="mc-cat-chip mc-cat-nosrc">${mcCatLabel(cat)}</span>`).join('');
+  const feeds = (claim.matchedCats || []).map((cat) => callFeedBlock(`${day.date}|${acc.accountant}|${cat}`)).join('');
+  return `<div class="mc-claim ${v.cls}">
+    <div class="mc-claim-head">
+      <span class="mc-claim-badge">${v.icon}</span>
+      <span class="mc-claim-text">${esc(claim.phrase)}</span>
+      ${claim.company_name ? `<span class="mc-claim-company">${esc(claim.company_name)}</span>` : ''}
+    </div>
+    <div class="mc-claim-verdict">${v.label}</div>
+    ${(matched || missing || other) ? `<div class="mc-claim-cats">${matched}${missing}${other}</div>` : ''}
+    ${feeds}
+  </div>`;
+}
+
+/** Карточка одного бухгалтера внутри дня созвона (полное сопоставление) */
 function callAccountantCard(day, acc) {
   const { taxIndex, armIndex } = state._indexes;
   const chip = (m, label) => `<span class="chip ${m.found ? (m.quality === 'fuzzy' ? 'chip-fuzzy' : 'chip-yes') : 'chip-no'}">${m.found ? (m.quality === 'fuzzy' ? '≈' : '✓') : '✗'} ${label}</span>`;
 
+  // --- 1. Слова бухгалтера, сгруппированные по компании, с company-совпадением
   const said = acc.said.map((s) => {
     const hasName = !!s.company_name;
     const tm = hasName ? findMatch(taxIndex, { hvhh: null, names: [s.company_name] }) : null;
@@ -1637,35 +1686,61 @@ function callAccountantCard(day, acc) {
     </div>`;
   }).join('');
 
-  const taxKey = `${day.date}|${acc.accountant}|TaxService`;
-  const armKey = `${day.date}|${acc.accountant}|ArmSoft`;
+  // --- 2. Разбор КАЖДОГО слова ↔ факт по всем категориям выгрузки
+  const cs = acc.claimStats;
+  const claimSummary = acc.claims.length
+    ? `<div class="mc-claim-summary">
+        ${cs.confirmed ? `<span class="mc-pill mc-pill-ok">✓ ${cs.confirmed} подтв.</span>` : ''}
+        ${cs.missing ? `<span class="mc-pill mc-pill-miss">✗ ${cs.missing} нет в выгрузке</span>` : ''}
+        ${cs.structural ? `<span class="mc-pill mc-pill-struct">◌ ${cs.structural} вне выгрузки</span>` : ''}
+        ${cs.noSource ? `<span class="mc-pill mc-pill-nosrc">≈ ${cs.noSource} без раздела</span>` : ''}
+        ${cs.unclassified ? `<span class="mc-pill mc-pill-unk">? ${cs.unclassified} не распознано</span>` : ''}
+      </div>`
+    : '';
+  const claims = acc.claims.length
+    ? acc.claims.map((c, i) => mcClaimRow(day, acc, c, i)).join('')
+    : '<p class="muted">Слов на созвоне не зафиксировано.</p>';
 
-  return `<div class="item-card mc-acc${acc.hasActual ? '' : ' mc-acc-idle'}">
+  // --- 3. Полная фактическая работа за день (ВСЕ категории выгрузки Артёма)
+  const factRows = acc.fullCats.length
+    ? acc.fullCats.map((c) => {
+        const key = `${day.date}|${acc.accountant}|${c.category}`;
+        return `<button class="mc-fact-row mc-drill" data-mc-drill="${esc(key)}" title="показать документы">
+          <span class="mc-fact-label">${c.icon} ${esc(c.label)} <em>${c.system}</em></span>
+          <b>${fmtNum(c.count)}</b>${c_isFeedOpen(key) ? ' ▾' : ''}
+        </button>${callFeedBlock(key)}`;
+      }).join('')
+    : '<p class="muted">Нет ни одной операции в выгрузке за этот день.</p>';
+
+  // --- 4. Работа в выгрузке, о которой на созвоне НЕ сказали (не пропускаем!)
+  const unmentioned = acc.unmentioned.length
+    ? `<div class="mc-unmentioned">
+        <div class="mc-col-title">🔎 В выгрузке есть, но на созвоне не упомянуто (${acc.unmentioned.length})</div>
+        ${acc.unmentioned.map((c) => `<div class="mc-metric"><span>${c.icon} ${esc(c.label)} <em>${c.system}</em></span><b>${fmtNum(c.count)}</b></div>`).join('')}
+      </div>`
+    : '';
+
+  return `<div class="item-card mc-acc${acc.hasFullActual ? '' : ' mc-acc-idle'}">
     <div class="item-head">
       <strong>${esc(acc.accountant)}</strong>
-      <span class="badge ${acc.hasActual ? 'badge-green' : 'badge-yellow'}">
-        ${acc.hasActual ? 'есть факт в выгрузке' : 'нет факта в выгрузке'}
+      <span class="badge ${acc.hasFullActual ? 'badge-green' : 'badge-yellow'}">
+        ${acc.hasFullActual ? `есть факт в выгрузке · ${acc.fullCatCount} раздел(ов)` : 'нет факта в выгрузке'}
       </span>
     </div>
-    <div class="mc-cols">
+    <div class="mc-cols mc-cols-3">
       <div class="mc-col mc-col-said">
         <div class="mc-col-title">🗣 Сказал на созвоне</div>
         ${said || '<p class="muted">—</p>'}
+        <div class="mc-col-title" style="margin-top:12px;">🧩 Разбор по словам ↔ выгрузка</div>
+        ${claimSummary}
+        <div class="mc-claims">${claims}</div>
       </div>
-      <div class="mc-col mc-col-tax">
-        <div class="mc-col-title">📊 Факт TaxService · ${fmtDate(acc.actualDate)}</div>
-        ${mcMetricLine('📄 сдано отчётов', acc.tax.report)}
-        ${mcMetricLine('🧾 налог. счета выставлены', acc.tax.tax_invoice_issued)}
-        ${mcMetricLine('📥 налог. счета получены', acc.tax.tax_invoice_received)}
-        ${acc.tax.total ? `<button class="btn btn-sm mc-drill" data-mc-drill="${esc(taxKey)}">${c_isFeedOpen(taxKey) ? '▾ скрыть' : '▸ показать за что'}</button>` : ''}
-        ${callFeedBlock(taxKey)}
+      <div class="mc-col mc-col-fact">
+        <div class="mc-col-title">📊 Факт в выгрузке · ${fmtDate(acc.actualDate)}</div>
+        <div class="mc-facts">${factRows}</div>
       </div>
-      <div class="mc-col mc-col-arm">
-        <div class="mc-col-title">📊 Факт ArmSoft · ${fmtDate(acc.actualDate)}</div>
-        ${mcMetricLine('🧾 счета выставлены', acc.arm.invoice_issued)}
-        ${mcMetricLine('📥 счета получены', acc.arm.invoice_received)}
-        ${acc.arm.total ? `<button class="btn btn-sm mc-drill" data-mc-drill="${esc(armKey)}">${c_isFeedOpen(armKey) ? '▾ скрыть' : '▸ показать за что'}</button>` : ''}
-        ${callFeedBlock(armKey)}
+      <div class="mc-col mc-col-extra">
+        ${unmentioned || '<div class="mc-col-title">🔎 Не упомянутое</div><p class="muted">Всё сказанное покрывает работу в выгрузке.</p>'}
       </div>
     </div>
   </div>`;
@@ -1686,12 +1761,14 @@ function callDayCard(day) {
       <div class="report-tiles mc-tiles">
         <div class="report-tile tile-gray"><span class="tile-label">Отчитались</span>
           <span class="tile-value">${a.accountantCount}</span><span class="tile-sub">бухгалтеров · ${a.companyCount} компаний</span></div>
-        <div class="report-tile tile-blue"><span class="tile-label">Факт TaxService</span>
-          <span class="tile-value">${fmtNum(a.taxTotal)}</span><span class="tile-sub">${fmtNum(a.reportCount)} отчётов + счета</span></div>
-        <div class="report-tile tile-blue"><span class="tile-label">Факт ArmSoft</span>
-          <span class="tile-value">${fmtNum(a.armTotal)}</span><span class="tile-sub">счета выст./получ. ${whenSub}</span></div>
-        <div class="report-tile tile-${a.saidNoActual ? 'yellow' : 'green'}"><span class="tile-label">Сказали без факта</span>
-          <span class="tile-value">${a.saidNoActual}</span><span class="tile-sub">нет работы в выгрузке</span></div>
+        <div class="report-tile tile-blue"><span class="tile-label">Факт в выгрузке</span>
+          <span class="tile-value">${fmtNum(a.fullActualTotal)}</span><span class="tile-sub">операций в ${a.categoriesUsed} раздел(ах) ${whenSub}</span></div>
+        <div class="report-tile tile-green"><span class="tile-label">Слов подтверждено</span>
+          <span class="tile-value">${a.claimConfirmed}</span><span class="tile-sub">из ${a.claimTotal} разобранных слов</span></div>
+        <div class="report-tile tile-${a.claimMissing ? 'red' : 'green'}"><span class="tile-label">Сказали — нет факта</span>
+          <span class="tile-value">${a.claimMissing}</span><span class="tile-sub">задач без подтверждения</span></div>
+        <div class="report-tile tile-${a.unmentionedTotal ? 'yellow' : 'gray'}"><span class="tile-label">Не упомянуто</span>
+          <span class="tile-value">${fmtNum(a.unmentionedTotal)}</span><span class="tile-sub">операций в выгрузке без слов</span></div>
       </div>
       <p class="mc-analysis-text">${esc(callAnalysisText(day))}</p>
     </div>`;
@@ -1817,12 +1894,12 @@ function bindCallsDelegated(container) {
   });
 }
 
-/** Раскрыть/свернуть список документов за день+бухгалтер+система (drill) */
+/** Раскрыть/свернуть список документов за день+бухгалтер+КАТЕГОРИЯ (drill) */
 async function toggleCallFeed(key) {
   const c = state.calls;
   if (c.expandedFeed.has(key)) { c.expandedFeed.delete(key); renderCalls(); return; }
   c.expandedFeed.add(key);
-  const [date, accountant, system] = key.split('|');
+  const [date, accountant, category] = key.split('|');
   if (!c.feed.has(key)) {
     c.feed.set(key, { loading: true, rows: [] });
     renderCalls();
@@ -1830,8 +1907,9 @@ async function toggleCallFeed(key) {
       const bridge = c.bridges.get(accountant) || { armIds: [], tins: [] };
       const day = c.data.days.find((d) => d.date === date);
       const actualDate = day ? day.actualDate : date;
-      const all = await fetchAccountantDayFeed(bridge.armIds, bridge.tins, actualDate, null, 400);
-      c.feed.set(key, { loading: false, rows: all.filter((r) => r.system === system) });
+      // конкретные документы именно этой категории (все разделы выгрузки)
+      const rows = await fetchAccountantDayFeedFull(bridge.armIds, bridge.tins, actualDate, category, 400);
+      c.feed.set(key, { loading: false, rows });
     } catch (e) {
       c.feed.set(key, { loading: false, error: e.message, rows: [] });
     }

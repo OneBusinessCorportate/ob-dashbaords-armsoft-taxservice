@@ -101,6 +101,36 @@ async function fetchAccountantDailyActivity(armIds, tins, from = null, to = null
   return data || [];
 }
 
+/**
+ * ПОЛНЫЕ счётчики работы по дню и категории по ВСЕМ разделам выгрузки Артёма
+ * (26 категорий: счета/накладные/касса/сверки/проводки/НДС/зарплата/ЕАЭС/пени…).
+ * RPC ob_accountant_activity_full — см. sql/2026-07-22_morning_calls_full_activity.sql.
+ * Возвращает [{ activity_date, system, category, cnt }].
+ */
+async function fetchAccountantActivityFull(armIds, tins, from = null, to = null) {
+  const { data, error } = await sb.rpc('ob_accountant_activity_full', {
+    p_company_ids: armIds && armIds.length ? armIds : [],
+    p_tins: tins && tins.length ? tins : [],
+    p_from: from,
+    p_to: to,
+  });
+  if (error) throw new Error('ob_accountant_activity_full: ' + error.message);
+  return data || [];
+}
+
+/** Конкретные документы за день и КАТЕГОРИЮ по всем разделам (drill «за что») */
+async function fetchAccountantDayFeedFull(armIds, tins, day, category = null, limit = 400) {
+  const { data, error } = await sb.rpc('ob_accountant_day_feed_full', {
+    p_company_ids: armIds && armIds.length ? armIds : [],
+    p_tins: tins && tins.length ? tins : [],
+    p_day: day,
+    p_category: category,
+    p_limit: limit,
+  });
+  if (error) throw new Error('ob_accountant_day_feed_full: ' + error.message);
+  return data || [];
+}
+
 /** Конкретные документы за один день и тип услуги (drill «показать за что») */
 async function fetchAccountantDayFeed(armIds, tins, day, category = null, limit = 400) {
   const { data, error } = await sb.rpc('ob_accountant_day_feed', {

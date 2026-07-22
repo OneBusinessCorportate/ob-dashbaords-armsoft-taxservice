@@ -600,3 +600,50 @@ body.modal-open { overflow: hidden; }
 
 .mc-drill { margin-top: 8px; }
 .mc-feed { margin-top: 8px; }
+
+/* --- Полное сопоставление слов созвона с выгрузкой (26 категорий) --- */
+@media (min-width: 780px) { .mc-cols-3 { grid-template-columns: 1.3fr 1fr 0.9fr; } }
+.mc-col-fact { background: var(--surface-2); }
+.mc-col-extra { background: var(--surface-2); }
+
+/* сводка по словам */
+.mc-claim-summary { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0 8px; }
+.mc-pill { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+.mc-pill-ok    { background: var(--good-bg); color: var(--good); }
+.mc-pill-miss  { background: var(--bad-bg);  color: var(--bad); }
+.mc-pill-struct{ background: var(--gray-bg); color: var(--text-2); }
+.mc-pill-nosrc { background: #eef1f5; color: var(--text-2); }
+.mc-pill-unk   { background: var(--warn-bg); color: var(--warn); }
+
+/* разбор одного слова */
+.mc-claims { display: flex; flex-direction: column; gap: 7px; }
+.mc-claim { border-left: 3px solid var(--border); padding: 6px 8px; border-radius: 6px; background: var(--surface); }
+.mc-claim-ok     { border-left-color: var(--good); background: var(--good-bg); }
+.mc-claim-miss   { border-left-color: var(--bad);  background: var(--bad-bg); }
+.mc-claim-struct { border-left-color: var(--text-3); }
+.mc-claim-nosrc  { border-left-color: var(--accent); }
+.mc-claim-unk    { border-left-color: var(--warn); background: var(--warn-bg); }
+.mc-claim-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.mc-claim-badge { font-weight: 800; }
+.mc-claim-text { font-size: 13px; font-weight: 600; }
+.mc-claim-company { font-size: 11px; color: var(--text-3); }
+.mc-claim-verdict { font-size: 11px; color: var(--text-2); margin-top: 2px; }
+.mc-claim-cats { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.mc-cat-chip { font-size: 11px; padding: 2px 7px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--surface); cursor: default; font-family: inherit; }
+button.mc-cat-chip { cursor: pointer; }
+.mc-cat-ok    { background: var(--good-bg); color: var(--good); border-color: transparent; }
+.mc-cat-miss  { background: var(--bad-bg);  color: var(--bad);  border-color: transparent; }
+.mc-cat-nosrc { background: #eef1f5; color: var(--text-2); border-color: transparent; }
+
+/* полная фактическая работа за день */
+.mc-facts { display: flex; flex-direction: column; }
+.mc-fact-row { display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  width: 100%; text-align: left; border: none; border-bottom: 1px solid var(--border);
+  background: none; font: inherit; padding: 6px 0; cursor: pointer; }
+.mc-fact-row:hover { background: rgba(0,0,0,0.02); }
+.mc-fact-row b { font-size: 15px; }
+.mc-fact-label { font-size: 12px; color: var(--text); }
+.mc-fact-label em { font-style: normal; font-size: 10px; color: var(--text-3); padding-left: 4px; }
+
+.mc-unmentioned .mc-metric em { font-style: normal; font-size: 10px; color: var(--text-3); padding-left: 4px; }

@@ -239,6 +239,61 @@ const mcOff = buildMorningCalls(mcComments, mcActivity, 1);
 const annOff = mcOff.days[0].accountants.find((x) => x.accountant === 'Ann'); // созвон 23-го
 eq(annOff.actualDate, '2026-06-22', 'offset 1: факт берётся за 22-е (день до созвона 23-го)');
 eq(annOff.tax.report, 1, 'offset 1: у Ann на 22-е есть 1 отчёт');
+
+// ---- morningcalls: разбор слов (ПОЛНОЕ сопоставление) ----
+eq(mcNormalizeText('Сдал ОТЧЁТ'), 'сдал отчет', 'нормализация: нижний регистр + ё→е');
+eq(mcSplitPhrases('Выписала 3 инвойса, провела сверку с клиентом').length, 2, 'разбивка фразы на 2 задачи');
+
+const mCat = mcMatchCategories('провела сверку с клиентом');
+ok(mCat.categories.includes('reconciliation_act'), 'сверка → акт сверки');
+ok(!mCat.structural, 'сверка — это работа в выгрузке, не structural');
+ok(mcMatchCategories('Устное согласование по ставкам').structural, 'устное согласование → вне выгрузки');
+ok(mcMatchCategories('Выписала инвойсы').categories.includes('invoice_issued'), 'инвойс → счёт выставлен');
+ok(mcMatchCategories('Работал с накладными и остатками').categories.includes('transfer_invoice'), 'накладные → передаточные');
+ok(mcMatchCategories('Начислил зарплату сотрудникам').categories.includes('tax_employee'), 'зарплата → сотрудники (налог.)');
+ok(mcMatchCategories('Подала заявление в налоговую').categories.includes('application'), 'заявление → application (без таблицы)');
+ok(!MC_CATEGORIES.application.measurable, 'application не измеряется отдельной таблицей');
+
+// mcBuildClaims: вердикты по фактической активности за день
+const claimsCatMap = new Map([['invoice_issued', 3], ['reconciliation_act', 0]]);
+const claims = mcBuildClaims(
+  [{ company_name: 'Alpha', comment: 'Выписала 3 инвойса, провела сверку', unaccounted: 'Консультация с директором' }],
+  claimsCatMap,
+);
+eq(claims.length, 3, 'три задачи: инвойс, сверка, консультация');
+const cInv = claims.find((c) => c.phrase.includes('инвойс'));
+const cRec = claims.find((c) => c.phrase.includes('сверк'));
+const cCons = claims.find((c) => c.phrase.includes('онсультац'));
+eq(cInv.verdict, 'confirmed', 'инвойс: есть 3 факта → подтверждено');
+eq(cInv.matchedCount, 3, 'инвойс: matchedCount = 3');
+eq(cRec.verdict, 'missing', 'сверка: 0 фактов → сказал, нет в выгрузке');
+eq(cCons.verdict, 'not_in_export', 'консультация: вне выгрузки');
+
+// mcFullBreakdown: все категории с фактом (>0), в порядке MC_CATEGORY_ORDER
+const fb = mcFullBreakdown(new Map([['journal_operation', 5], ['report', 2], ['invoice_issued', 0]]));
+eq(fb.length, 2, 'в разбивку попадают только категории с count>0');
+eq(fb[0].category, 'report', 'порядок: report раньше journal_operation');
+ok(fb.every((c) => c.label && c.system), 'у каждой категории есть подпись и система');
+
+// buildMorningCalls: полный анализ + «не упомянуто»
+const mcFullAct = new Map([
+  ['Ann', [
+    { activity_date: '2026-06-23', system: 'ArmSoft', category: 'invoice_issued', cnt: 3 },
+    { activity_date: '2026-06-23', system: 'ArmSoft', category: 'cash_receipt', cnt: 4 },
+  ]],
+]);
+const mcFullComments = [
+  { accountant_name: 'Ann', company_name: 'Beta', comment_date: '2026-06-23', comment: 'Выписала инвойсы', unaccounted: null },
+];
+const mcFull = buildMorningCalls(mcFullComments, mcFullAct, 0);
+const annFull = mcFull.days[0].accountants.find((x) => x.accountant === 'Ann');
+eq(annFull.fullCatCount, 2, 'у Ann 2 раздела с фактом (invoice_issued, cash_receipt)');
+ok(annFull.hasFullActual, 'hasFullActual=true при наличии любой работы');
+eq(annFull.claimStats.confirmed, 1, 'слово «инвойсы» подтверждено фактом');
+eq(annFull.unmentioned.length, 1, 'касса — работа в выгрузке, о которой не сказали');
+eq(annFull.unmentioned[0].category, 'cash_receipt', 'не упомянута именно касса');
+eq(mcFull.days[0].analysis.unmentionedTotal, 4, 'анализ: 4 не упомянутых операции (касса)');
+eq(mcFull.days[0].analysis.claimConfirmed, 1, 'анализ: 1 подтверждённое слово');
 `;
 
 try {
