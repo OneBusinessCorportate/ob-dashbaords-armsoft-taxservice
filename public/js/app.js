@@ -1004,11 +1004,15 @@ function renderAccountants() {
   </div></div>`;
 
   const total = rows.length;
-  const slice = rows.slice(0, state.accShown);
+  // При выбранном бухгалтере показываем ВСЕ его компании (бухгалтер должен видеть
+  // весь свой список для проверки). Пагинация 60+«показать ещё» остаётся только
+  // для общего списка «все бухгалтеры» (там могут быть тысячи компаний).
+  const showAll = !!f.accountant;
+  const slice = showAll ? rows : rows.slice(0, state.accShown);
   const list = slice.length
     ? `<div class="acc-list">${slice.map((r) => accCompanyCard(r, !f.accountant)).join('')}</div>`
     : '<p class="empty">Нет компаний по выбранным фильтрам</p>';
-  const more = total > slice.length
+  const more = (!showAll && total > slice.length)
     ? `<button class="btn btn-more" id="acc-more">Показать ещё (${total - slice.length})</button>` : '';
   const count = `<p class="muted">Показано компаний: <b>${slice.length}</b> из ${total}${f.accountant ? '' : ` · бухгалтеров: ${accs.length}`}</p>`;
 
