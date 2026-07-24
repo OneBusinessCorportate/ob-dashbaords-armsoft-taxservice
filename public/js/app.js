@@ -183,18 +183,18 @@ function renderSummaryCards() {
   const reverse = open.filter((r) => r.issue_type === 'tax_not_in_ob' || r.issue_type === 'armsoft_not_in_ob');
 
   const cards = [
-    { label: 'Дельта сегодня (нет в выгрузке)', value: forward.length, color: forward.length ? 'red' : 'green', icon: 'Δ', drill: () => showDrill('Активные клиенты OB, которых нет в выгрузке Артёма', forward) },
-    { label: 'Нет в TaxService', value: missTax.length, color: 'red', icon: 'T', drill: () => showDrill(ISSUE_TYPES.missing_taxservice.label, missTax) },
-    { label: 'Нет в ArmSoft', value: missArm.length, color: 'red', icon: 'A', drill: () => showDrill(ISSUE_TYPES.missing_armsoft.label, missArm) },
-    { label: 'Артём выгрузил, нет в реестре OB', value: reverse.length, color: 'yellow', icon: '⇄', drill: () => showDrill('Есть в выгрузке Артёма, но нет в реестре OB', reverse) },
-    { label: 'Проблемы выгрузки Артёма', value: open.filter((r) => r.confirmation_status === 'confirmed_artyom_export_problem').length, color: 'red', icon: '!', drill: () => showDrill('Подтверждённые проблемы выгрузки', open.filter((r) => r.confirmation_status === 'confirmed_artyom_export_problem')) },
-    { label: 'Ждут проверки Эмилии', value: open.filter((r) => r.confirmation_status === 'not_checked').length, color: 'yellow', icon: '?', drill: () => showDrill('Не проверено', open.filter((r) => r.confirmation_status === 'not_checked')) },
-    { label: 'Исправлено со вчера', value: state.deltaItems.filter((r) => r.resolved_at && r.resolved_at.slice(0, 10) >= yesterdayIso).length, color: 'green', icon: '✓', drill: () => showDrill('Исправлено со вчера', state.deltaItems.filter((r) => r.resolved_at && r.resolved_at.slice(0, 10) >= yesterdayIso)) },
-    { label: 'Новые за сегодня', value: state.deltaItems.filter((r) => r.snapshot_date === today).length, color: 'red', icon: '+', drill: () => showDrill('Новые за сегодня', state.deltaItems.filter((r) => r.snapshot_date === today)) },
+    { label: 'Дельта сегодня (нет в выгрузке)', tip: 'Открытые расхождения прямого типа: активный клиент OB, которого нет в выгрузке Артёма. = «Нет в TaxService» + «Нет в ArmSoft». Именно эта цифра должна уменьшаться после новых выгрузок. Нажмите — список компаний.', value: forward.length, color: forward.length ? 'red' : 'green', icon: 'Δ', drill: () => showDrill('Активные клиенты OB, которых нет в выгрузке Артёма', forward) },
+    { label: 'Нет в TaxService', tip: 'Открытые расхождения типа missing_taxservice: клиент активен, но не найден в налоговой выгрузке Артёма (v_tax_accounts) ни по ИНН, ни по названию.', value: missTax.length, color: 'red', icon: 'T', drill: () => showDrill(ISSUE_TYPES.missing_taxservice.label, missTax) },
+    { label: 'Нет в ArmSoft', tip: 'Открытые расхождения типа missing_armsoft: клиент активен И в реестре заполнена ArmSoft-привязка (armsoft_company_id), но компания не найдена в ArmSoft-выгрузке (v_armsoft_companies).', value: missArm.length, color: 'red', icon: 'A', drill: () => showDrill(ISSUE_TYPES.missing_armsoft.label, missArm) },
+    { label: 'Артём выгрузил, нет в реестре OB', tip: 'Обратные расхождения: компания есть в выгрузке Артёма (TaxService или ArmSoft), но не привязана ни к одному активному клиенту OB. Эти цифры НЕ входят в «Дельта сегодня» — их разбирают отдельно (возможно, клиента забыли завести).', value: reverse.length, color: 'yellow', icon: '⇄', drill: () => showDrill('Есть в выгрузке Артёма, но нет в реестре OB', reverse) },
+    { label: 'Проблемы выгрузки Артёма', tip: 'Расхождения, которые Эмилия/Лина в разделе «Проверка» пометили статусом «Подтверждено: проблема выгрузки Артёма». Именно они уходят в раздел «ТЗ Артёму».', value: open.filter((r) => r.confirmation_status === 'confirmed_artyom_export_problem').length, color: 'red', icon: '!', drill: () => showDrill('Подтверждённые проблемы выгрузки', open.filter((r) => r.confirmation_status === 'confirmed_artyom_export_problem')) },
+    { label: 'Ждут проверки Эмилии', tip: 'Открытые расхождения со статусом «Не проверено» (confirmation_status = not_checked) — по ним ещё не выбрана причина в разделе «Проверка».', value: open.filter((r) => r.confirmation_status === 'not_checked').length, color: 'yellow', icon: '?', drill: () => showDrill('Не проверено', open.filter((r) => r.confirmation_status === 'not_checked')) },
+    { label: 'Исправлено со вчера', tip: 'Расхождения, у которых дата закрытия (resolved_at) — вчера или позже. Показывает, сколько разрывов закрылось после последних выгрузок.', value: state.deltaItems.filter((r) => r.resolved_at && r.resolved_at.slice(0, 10) >= yesterdayIso).length, color: 'green', icon: '✓', drill: () => showDrill('Исправлено со вчера', state.deltaItems.filter((r) => r.resolved_at && r.resolved_at.slice(0, 10) >= yesterdayIso)) },
+    { label: 'Новые за сегодня', tip: 'Расхождения, впервые появившиеся в сегодняшнем снимке (snapshot_date = сегодня по Еревану).', value: state.deltaItems.filter((r) => r.snapshot_date === today).length, color: 'red', icon: '+', drill: () => showDrill('Новые за сегодня', state.deltaItems.filter((r) => r.snapshot_date === today)) },
   ];
 
   $('#summary-cards').innerHTML = cards.map((c, i) => `
-    <button class="card card-${c.value === 0 && c.color !== 'green' ? 'gray' : c.color}" data-card="${i}">
+    <button class="card card-${c.value === 0 && c.color !== 'green' ? 'gray' : c.color}" data-card="${i}" data-tip="${esc(c.tip)}">
       <span class="card-icon">${c.icon}</span>
       <span class="card-value">${c.value}</span>
       <span class="card-label">${c.label}</span>
@@ -308,7 +308,7 @@ function renderExports() {
     <td class="nowrap" style="text-align:right">${fmtNum(r.record_count)}</td>
   </tr>`;
   const volumeHtml = volume.length ? `
-    <h3 class="block-title">Объём выгрузки по всему проекту OB Artyom
+    <h3 class="block-title" data-tip="Сколько всего строк парсеры Артёма загрузили в проект OB Artyom (armsoft_db) по каждому набору данных: не только справочники компаний, а журналы, счета, операции и т.д. Плашка справа — сумма по всем наборам (v_artyom_export_volume). Это объём разобранных данных, а не число компаний.">Объём выгрузки по всему проекту OB Artyom
       <span class="count-pill">${fmtNum(volTotal)} строк</span></h3>
     <p class="hint">Реальный объём того, что парсеры Артёма загрузили в проект: не только справочники
       компаний, а все наборы данных (журналы, счета, операции и т.д.).
@@ -342,7 +342,7 @@ function renderExports() {
 
   const tableBlock = (title, note, rows, limit) => `
     <div class="cross-block">
-      <h3 class="block-title">${title} <span class="count-pill">${rows.length}</span></h3>
+      <h3 class="block-title" data-tip="${esc(note)} Плашка — число таких компаний. Сравнение идёт по названию (ArmSoft не отдаёт ИНН); значок ≈ у строки означает вероятное неточное совпадение названий.">${title} <span class="count-pill">${rows.length}</span></h3>
       <p class="hint">${note}</p>
       <div class="table-wrap">
         <table class="data-table compact">
@@ -357,7 +357,7 @@ function renderExports() {
     </div>`;
 
   $('#exports-body').innerHTML = `
-    <h3 class="block-title">Выгрузки Артёма по датам</h3>
+    <h3 class="block-title" data-tip="История запусков выгрузки по датам (v_artyom_export_dates). Каждый столбец — день выгрузки, высота столбца — сколько модулей-парсеров отработало в этот день (modules_run). Итоговая строка под графиком: число дат выгрузок, суммарное число запусков модулей и дата последней выгрузки.">Выгрузки Артёма по датам</h3>
     <p class="hint">Каждый столбец — дата, когда Артём делал выгрузку; высота — сколько модулей-парсеров отработало в этот день.</p>
     ${chartHtml}
     ${volumeHtml}
@@ -412,23 +412,23 @@ function renderSync() {
   const reportHtml = `
     <h3 class="block-title">Отчёт по процессу взаимодействия с Артёмом</h3>
     <div class="report-tiles">
-      <div class="report-tile tile-${exportedGood ? 'green' : expMeta.color}">
+      <div class="report-tile tile-${exportedGood ? 'green' : expMeta.color}" data-tip="Успел ли Артём сделать выгрузку по графику. Ожидаем свежую выгрузку к 02:00 по Еревану + 12 ч льготного периода (config.js → TASK_SYNC.exportSchedule). Статус приходит из серверной проверки artyom_export_schedule_status: Выгрузил / Ожидаем / Просрочено / Нет данных.">
         <span class="tile-label">1. Выгрузил Артём?</span>
         <span class="tile-value">${expMeta.emoji} ${expMeta.label}</span>
         <span class="tile-sub">Проверка графика выгрузки</span>
       </div>
-      <div class="report-tile tile-${matchColor}">
+      <div class="report-tile tile-${matchColor}" data-tip="Насколько задачи бухгалтеров подтверждаются выгрузкой. Соответствие (%) = задачи, отражённые в выгрузке ÷ ожидаемые в выгрузке × 100. Ожидаемые = задачи, которые в норме должны попасть в выгрузку (без структурно невидимой работы). Цвет: ≥90% зелёный, ≥70% жёлтый, ниже красный.">
         <span class="tile-label">2. Данные соответствуют действительности?</span>
         <span class="tile-value">${matchRate == null ? '—' : matchRate + '%'}</span>
         <span class="tile-sub">${rep.inExportTotal} из ${rep.expectedTotal} задач отражены в выгрузке</span>
       </div>
     </div>
     <div class="report-stats muted">
-      Не отражено в выгрузке: <b class="${rep.missingTotal ? 'red' : 'green'}">${rep.missingTotal}</b> ·
-      Артём не видит (по правилам): <b>${rep.notExpectedTotal}</b> ·
-      Бухгалтеров: <b>${rep.accountants}</b> ·
-      Проблем: <b class="${rep.problemsCount ? 'red' : 'green'}">${rep.problemsCount}</b> ·
-      Окно сверки: ${fmtDate(ts.windowStart)} — ${fmtDate(ts.referenceDate)}
+      <span data-tip="Число задач бухгалтеров, которые ожидались в выгрузке, но там их нет (компания не найдена в нужной системе). Это и есть кандидаты в проблемы.">Не отражено в выгрузке: <b class="${rep.missingTotal ? 'red' : 'green'}">${rep.missingTotal}</b></span> ·
+      <span data-tip="Задачи, которые выгрузка Артёма структурно НЕ видит (устные согласования, консультации, корректировки прошлых периодов). Распознаются по списку config.js → TASK_SYNC.tasksNotInExport и исключаются из знаменателя соответствия.">Артём не видит (по правилам): <b>${rep.notExpectedTotal}</b></span> ·
+      <span data-tip="Сколько бухгалтеров попало в окно сверки (у кого была активность за последние 45 дней от самой свежей даты в данных).">Бухгалтеров: <b>${rep.accountants}</b></span> ·
+      <span data-tip="Число записей в списке проблем сверки (расхождения графика, пропуски, ошибки формата).">Проблем: <b class="${rep.problemsCount ? 'red' : 'green'}">${rep.problemsCount}</b></span> ·
+      <span data-tip="Диапазон дат, за который сверялись задачи (окно 45 дней, отсчитывается от самой свежей даты активности в данных, а не от сегодня).">Окно сверки: ${fmtDate(ts.windowStart)} — ${fmtDate(ts.referenceDate)}</span>
     </div>`;
 
   // --- фильтр по бухгалтеру ---
@@ -478,10 +478,10 @@ function renderSync() {
         <span class="badge badge-${a.missing ? 'red' : 'green'}">${a.missing} не в выгрузке</span>
       </div>
       <div class="item-meta">
-        <span>Всего задач: <b>${a.total}</b></span>
-        <span>В выгрузке: <b class="green">${a.inExport}</b></span>
-        <span>Артём не видит: <b>${a.notExpected}</b></span>
-        <span>Соответствие: <b class="${rateColor}">${rate}</b></span>
+        <span data-tip="Сколько задач этого бухгалтера попало в окно сверки (по accounting_activities за 45 дней).">Всего задач: <b>${a.total}</b></span>
+        <span data-tip="Из них подтверждены выгрузкой — компания найдена в TaxService или ArmSoft.">В выгрузке: <b class="green">${a.inExport}</b></span>
+        <span data-tip="Задачи, которые выгрузка структурно не видит (консультации, устные согласования и т.п.) — в знаменатель соответствия не входят.">Артём не видит: <b>${a.notExpected}</b></span>
+        <span data-tip="Соответствие = В выгрузке ÷ (Всего − Артём не видит) × 100. Зелёный ≥90%, жёлтый ≥70%, красный ниже.">Соответствие: <b class="${rateColor}">${rate}</b></span>
       </div>
       ${missing}
     </div>`;
@@ -518,12 +518,12 @@ function renderSync() {
   body.innerHTML = `
     ${scheduleBannerHtml()}
     ${reportHtml}
-    <h3 class="block-title">По бухгалтерам · задачи, не отражённые в выгрузке</h3>
+    <h3 class="block-title" data-tip="По каждому бухгалтеру — сколько его задач подтверждено выгрузкой и какие конкретно НЕ отражены. Раскройте бухгалтера, чтобы увидеть задачи; поле самопроверки — заготовка следующего этапа (бухгалтер сам подтверждает, учтена ли работа).">По бухгалтерам · задачи, не отражённые в выгрузке</h3>
     <p class="hint">Разворачивайте бухгалтера, чтобы увидеть конкретные задачи. Поле самопроверки —
       заготовка следующего этапа: бухгалтер сам подтверждает, учтена ли работа.</p>
     ${accFilter}
     <div class="list">${accCards}</div>
-    <h3 class="block-title">Список проблем сверки <span class="count-pill">${problems.length}</span></h3>
+    <h3 class="block-title" data-tip="Расхождения, пропуски и ошибки формата, найденные при сверке (категории: график выгрузки, нет в выгрузке, расхождение названия, ошибка формата, не отражённая работа). Из таблицы sync_problems, либо вычислено на лету. Плашка — число проблем; сортировка по важности (высокая → низкая).">Список проблем сверки <span class="count-pill">${problems.length}</span></h3>
     <p class="hint">Расхождения, пропуски и ошибки формата, найденные при сверке задач с выгрузкой.</p>
     <div class="list">${probRows}</div>`;
 
@@ -588,16 +588,16 @@ function itemCard(r, withReview = false) {
       <span class="badge badge-${conf.color}">${conf.label}</span>
     </div>
     <div class="item-meta">
-      <span>ՀՎՀՀ: <b>${esc(r.hvhh) || '—'}</b></span>
-      <span>Бухгалтер: <b>${esc(r.accountant_name) || '—'}</b></span>
-      <span>Статус: <b>${r.client_is_active === true ? 'активен' : r.client_is_active === false ? 'неактивен' : '—'}</b></span>
-      <span>Приоритет: <b>${PRIORITIES[r.priority]?.label || r.priority}</b></span>
+      <span data-tip="ИНН/ՀՎՀՀ компании. Восстанавливается из TaxService (v_tax_accounts.tin) через связь tax_account_id или совпадение названия — в реестре OB своего поля ИНН нет. Прочерк, если не удалось определить.">ՀՎՀՀ: <b>${esc(r.hvhh) || '—'}</b></span>
+      <span data-tip="Бухгалтер, за которым закреплён клиент в реестре OB (ob_accounting_companies.accountant_name).">Бухгалтер: <b>${esc(r.accountant_name) || '—'}</b></span>
+      <span data-tip="Активен ли клиент в реестре OB (is_active). Расхождения считаются только по активным клиентам.">Статус: <b>${r.client_is_active === true ? 'активен' : r.client_is_active === false ? 'неактивен' : '—'}</b></span>
+      <span data-tip="Приоритет разбора, выставляется вручную в разделе «Проверка».">Приоритет: <b>${PRIORITIES[r.priority]?.label || r.priority}</b></span>
     </div>
     <div class="item-issue">
-      <span class="badge badge-red">${ISSUE_TYPES[r.issue_type]?.short || r.issue_type}</span>
+      <span class="badge badge-red" data-tip="Тип расхождения. Прямые (нет в TaxService/ArmSoft) считаются в общую дельту; обратные (есть у Артёма, нет в реестре OB) разбираются отдельно и в дельту не входят.">${ISSUE_TYPES[r.issue_type]?.short || r.issue_type}</span>
       <span class="muted">не хватает: ${esc(r.missing_from_system)}</span>
     </div>
-    <div class="item-chips">${chips(r)}</div>
+    <div class="item-chips" data-tip="Где компания реально существует: ✓ TaxService / ArmSoft — найдена в выгрузке Артёма по этой системе; ✓ Реестр OB — ведётся в реестре клиентов; ✓ Встреча — упоминалась на утренней встрече. ≈ — неточное (fuzzy) совпадение по названию.">${chips(r)}</div>
     <div class="item-reason">${esc(r.possible_reason || '')}</div>
     <div class="item-foot muted">
       Обнаружено: ${fmtDate(r.snapshot_date)} · Последняя проверка: ${fmtDate(r.last_seen_date)}
@@ -761,14 +761,14 @@ function renderTz() {
         <span class="badge badge-${st.color}">${st.label}</span>
       </div>
       <div class="item-meta">
-        <span>ՀՎՀՀ: <b>${esc(t.hvhh) || '—'}</b></span>
-        <span>Приоритет: <b>${PRIORITIES[t.priority]?.label || t.priority}</b></span>
-        <span>Обнаружено: <b>${fmtDate(t.date_detected)}</b></span>
+        <span data-tip="ИНН/ՀՎՀՀ компании (из TaxService).">ՀՎՀՀ: <b>${esc(t.hvhh) || '—'}</b></span>
+        <span data-tip="Приоритет пункта — переносится из раздела «Проверка».">Приоритет: <b>${PRIORITIES[t.priority]?.label || t.priority}</b></span>
+        <span data-tip="Дата, когда расхождение впервые обнаружено.">Обнаружено: <b>${fmtDate(t.date_detected)}</b></span>
       </div>
       <div class="item-reason">${esc(t.issue_description || '')}</div>
       <div class="item-meta">
-        <span>Ожидается в: <b>${esc(t.expected_source) || '—'}</b></span>
-        <span>Фактически есть: <b>${esc(t.actual_source) || '—'}</b></span>
+        <span data-tip="Система, в которой компания ДОЛЖНА быть по правилу (TaxService и/или ArmSoft), но её там нет.">Ожидается в: <b>${esc(t.expected_source) || '—'}</b></span>
+        <span data-tip="Где компания сейчас фактически присутствует (например, только в реестре OB или только в одной из систем).">Фактически есть: <b>${esc(t.actual_source) || '—'}</b></span>
       </div>
       ${t.comment ? `<div class="item-comment">» ${esc(t.comment)}</div>` : ''}
       <div class="review-fields">
@@ -871,9 +871,9 @@ function accExistBadges(r) {
 function accWorkChips(w) {
   if (!w || !w.total) return '<span class="muted">нет работы в выгрузке Артёма</span>';
   const chips = [];
-  if (w.reports)           chips.push(`<span class="wchip wchip-report">📄 Отчёты: ${w.reports}</span>`);
-  if (w.invoices_issued)   chips.push(`<span class="wchip wchip-inv">🧾 Счета выст.: ${w.invoices_issued}</span>`);
-  if (w.invoices_received) chips.push(`<span class="wchip wchip-rcv">📥 Счета получ.: ${w.invoices_received}</span>`);
+  if (w.reports)           chips.push(`<span class="wchip wchip-report" data-tip="Сданные налоговые отчёты (формы) по этой компании из выгрузки Артёма.">📄 Отчёты: ${w.reports}</span>`);
+  if (w.invoices_issued)   chips.push(`<span class="wchip wchip-inv" data-tip="Выставленные счета: ArmSoft + налоговые э-счета TaxService.">🧾 Счета выст.: ${w.invoices_issued}</span>`);
+  if (w.invoices_received) chips.push(`<span class="wchip wchip-rcv" data-tip="Полученные/проведённые счета: ArmSoft + налоговые э-счета TaxService.">📥 Счета получ.: ${w.invoices_received}</span>`);
   return chips.join(' ');
 }
 
@@ -968,13 +968,13 @@ function renderAccountants() {
 
   const tiles = `
     <div class="report-tiles acc-tiles">
-      <div class="report-tile tile-gray"><span class="tile-label">Компаний активных</span>
+      <div class="report-tile tile-gray" data-tip="Сколько компаний активны (is_active) — по выбранному бухгалтеру или по всем. Из ${agg.total} компаний в реестре OB, закреплённых за бухгалтером(ами). Мусорные названия не считаются."><span class="tile-label">Компаний активных</span>
         <span class="tile-value">${agg.active}</span><span class="tile-sub">из ${agg.total} в реестре</span></div>
-      <div class="report-tile tile-green"><span class="tile-label">С работой в выгрузке</span>
+      <div class="report-tile tile-green" data-tip="Сколько компаний имеют хотя бы одну реальную операцию в выгрузке Артёма (сданный отчёт или выставленный/полученный счёт). Работа берётся по company_id (ArmSoft) и ИНН (TaxService)."><span class="tile-label">С работой в выгрузке</span>
         <span class="tile-value">${agg.withWork}</span><span class="tile-sub">есть реальные задачи Артёма</span></div>
-      <div class="report-tile tile-blue"><span class="tile-label">Сдано отчётов</span>
+      <div class="report-tile tile-blue" data-tip="Сумма сданных налоговых отчётов (форм) по всем компаниям — из налоговой активности выгрузки Артёма (reports_submitted)."><span class="tile-label">Сдано отчётов</span>
         <span class="tile-value">${fmtNum(agg.workReports)}</span><span class="tile-sub">налоговые формы</span></div>
-      <div class="report-tile tile-blue"><span class="tile-label">Счета (выст. / получ.)</span>
+      <div class="report-tile tile-blue" data-tip="Сумма счетов: выставленные / полученные. Считаются вместе счета ArmSoft и налоговые э-счета TaxService (invoices_issued/received + tax_invoices_issued/received)."><span class="tile-label">Счета (выст. / получ.)</span>
         <span class="tile-value">${fmtNum(agg.workInvoicesIssued)} / ${fmtNum(agg.workInvoicesReceived)}</span><span class="tile-sub">ArmSoft + TaxService</span></div>
     </div>`;
 
@@ -1137,7 +1137,7 @@ function dailyMetricRow(m, date, notes) {
   const accCount = note.accountant_count;
   return `<div class="dr-metric${disputed ? ' dr-metric-disp' : ''}">
     <div class="dr-metric-main">
-      <span class="dr-metric-name">${st.icon} ${esc(st.label)}</span>
+      <span class="dr-metric-name" data-tip="Тип услуги из выгрузки Артёма (${esc(st.system || '—')}). Количество за день × норматив ${m.minutesPerUnit} мин = время по хронометражу. Норматив меняется одним числом в config.js → CHRONO.minutesPerUnit.">${st.icon} ${esc(st.label)}</span>
       <span class="dr-metric-nums">
         <b class="dr-count">${m.count}</b> ${esc(st.unit)}${m.count === 1 ? '' : 'а/ов'}
         <span class="muted">× ${m.minutesPerUnit} мин = <b>${fmtMinutes(m.minutes)}</b></span>
@@ -1182,13 +1182,13 @@ function dailyDayCard(day) {
     <div class="day-head">
       <div class="day-date">${fmtDate(day.date)}
         <span class="badge badge-${stMeta.color}">${stMeta.label}</span></div>
-      <div class="day-total">по отчёту Артёма: <b>${fmtHours(day.totalMinutes)}</b>
+      <div class="day-total" data-tip="Суммарное время за день по хронометражу = сумма (количество × норматив) по всем услугам этого дня. В скобках — общее число действий за день.">по отчёту Артёма: <b>${fmtHours(day.totalMinutes)}</b>
         <span class="muted">(${day.totalCount} действ.)</span></div>
     </div>
 
     <div class="dr-metrics">${day.metrics.map((m) => dailyMetricRow(m, day.date, notes)).join('')}</div>
 
-    <div class="dr-sum">Итого по отчёту системы (Артём): <b>${fmtHours(day.totalMinutes)}</b>
+    <div class="dr-sum" data-tip="Итог времени по выгрузке Артёма за день (без правок бухгалтера). = сумма минут по всем услугам выше.">Итого по отчёту системы (Артём): <b>${fmtHours(day.totalMinutes)}</b>
       <span class="muted">= ${fmtMinutes(day.totalMinutes)}</span></div>
 
     <div class="dr-feedback">
@@ -1204,7 +1204,7 @@ function dailyDayCard(day) {
       <textarea class="dr-comment" data-day-comment rows="2"
         placeholder="Свободный комментарий…">${esc(fb && fb.accountant_comment || '')}</textarea>
 
-      <div class="dr-grand">Итого с учётом комментариев бухгалтера:
+      <div class="dr-grand" data-tip="Итог времени с учётом бухгалтера = время по выгрузке Артёма + минуты, которые бухгалтер дописал в блоке «что делал помимо учтённого времени» (формат «описание | минуты»).">Итого с учётом комментариев бухгалтера:
         <b>${fmtHours(md.grandTotalMinutes)}</b>
         <span class="muted">(отчёт Артёма ${fmtMinutes(day.totalMinutes)} + дописано ${fmtMinutes(md.extraMinutes)})</span></div>
 
@@ -1264,15 +1264,15 @@ function renderDaily() {
   const confirmedDays = [...d.reportsByDate.values()].filter((r) => r.status === 'confirmed').length;
 
   const tiles = `<div class="report-tiles acc-tiles">
-    <div class="report-tile tile-gray"><span class="tile-label">Компаний у бухгалтера</span>
+    <div class="report-tile tile-gray" data-tip="Сколько активных компаний закреплено за этим бухгалтером в реестре OB; в скобках — у скольких из них есть работа в выгрузке Артёма."><span class="tile-label">Компаний у бухгалтера</span>
       <span class="tile-value">${b.activeCount}</span><span class="tile-sub">${b.withWorkCount} с работой в выгрузке</span></div>
-    <div class="report-tile tile-blue"><span class="tile-label">Дней с работой</span>
+    <div class="report-tile tile-blue" data-tip="За сколько отдельных дней в выгрузке Артёма есть хоть одна операция этого бухгалтера (окно — последние 30 дней активности)."><span class="tile-label">Дней с работой</span>
       <span class="tile-value">${rep.dayCount}</span><span class="tile-sub">в выгрузке Артёма</span></div>
-    <div class="report-tile tile-blue"><span class="tile-label">Действий всего</span>
+    <div class="report-tile tile-blue" data-tip="Сумма всех действий за период: сданные отчёты + выставленные/полученные счета (ArmSoft и TaxService)."><span class="tile-label">Действий всего</span>
       <span class="tile-value">${fmtNum(rep.totalCount)}</span><span class="tile-sub">счета, отчёты и т.д.</span></div>
-    <div class="report-tile tile-green"><span class="tile-label">Времени по хронометражу</span>
+    <div class="report-tile tile-green" data-tip="Оценка отработанного времени = Σ(количество услуг × норматив минут на услугу). Норматив из хронометража Гарри (config.js → CHRONO.minutesPerUnit): счёт 7,8 мин, сданный отчёт 180 мин."><span class="tile-label">Времени по хронометражу</span>
       <span class="tile-value">${fmtHours(rep.totalMinutes)}</span><span class="tile-sub">за весь период</span></div>
-    <div class="report-tile tile-${confirmedDays ? 'green' : 'yellow'}"><span class="tile-label">Дней подтверждено</span>
+    <div class="report-tile tile-${confirmedDays ? 'green' : 'yellow'}" data-tip="Сколько дней бухгалтер уже подтвердил (статус «Подтверждено бухгалтером») из общего числа дней с работой."><span class="tile-label">Дней подтверждено</span>
       <span class="tile-value">${confirmedDays}</span><span class="tile-sub">из ${rep.dayCount}</span></div>
   </div>`;
 
@@ -1292,7 +1292,7 @@ function renderDaily() {
     ? `<button class="btn btn-more" data-daily-more>Показать ещё дни (${rep.days.length - shown.length})</button>` : '';
 
   body.innerHTML = header + tiles + letterBox
-    + `<h3 class="block-title">Хронология по дням <span class="count-pill">${rep.dayCount}</span></h3>`
+    + `<h3 class="block-title" data-tip="По каждому дню: отчёт Артёма по типам услуг и время по хронометражу, итог времени, подтверждение и комментарии бухгалтера (в т.ч. к каждой цифре), итог с учётом комментариев. Плашка — число дней с работой.">Хронология по дням <span class="count-pill">${rep.dayCount}</span></h3>`
     + `<p class="hint">Для каждого дня: отчёт Артёма по типам услуг и время по хронометражу; итог времени;
         подтверждение и комментарии бухгалтера (в т.ч. к каждой цифре); итог с учётом комментариев.</p>`
     + list + more;
@@ -1501,7 +1501,7 @@ function renderMeetings() {
         return `<div class="item-card">
           <div class="item-head">
             <strong>${esc(acc)}</strong>
-            <span class="badge ${missing.length ? 'badge-red' : 'badge-green'}">
+            <span class="badge ${missing.length ? 'badge-red' : 'badge-green'}" data-tip="Сколько компаний, упомянутых этим бухгалтером, НЕ подтверждены точным совпадением названия в выгрузке (ни в TaxService, ни в ArmSoft). Неточное совпадение (≈) показывается у компании, но как присутствие не засчитывается — такая компания тоже попадает в «нет в выгрузке».">
               ${missing.length ? `${missing.length} нет в выгрузке` : 'всё в выгрузке'}
             </span>
           </div>
@@ -1510,7 +1510,7 @@ function renderMeetings() {
             const arm = findMatch(armIndex, { hvhh: null, names: [c.company_name] });
             const chip = (m, label) => `<span class="chip ${m.found ? (m.quality === 'fuzzy' ? 'chip-fuzzy' : 'chip-yes') : 'chip-no'}">${m.found ? (m.quality === 'fuzzy' ? '≈' : '✓') : '✗'} ${label}</span>`;
             return `<div class="meeting-row">
-              <div class="meeting-company"><b>${esc(c.company_name)}</b>
+              <div class="meeting-company" data-tip="Компания, упомянутая на встрече. Чипы: ✓ — найдена в выгрузке этой системы, ≈ — неточное совпадение названия, ✗ — не найдена."><b>${esc(c.company_name)}</b>
                 ${chip(tm, 'TaxService')}${chip(arm, 'ArmSoft')}
               </div>
               <div class="muted">${esc(c.comment || '')}</div>
@@ -1690,11 +1690,11 @@ function callAccountantCard(day, acc) {
   const cs = acc.claimStats;
   const claimSummary = acc.claims.length
     ? `<div class="mc-claim-summary">
-        ${cs.confirmed ? `<span class="mc-pill mc-pill-ok">✓ ${cs.confirmed} подтв.</span>` : ''}
-        ${cs.missing ? `<span class="mc-pill mc-pill-miss">✗ ${cs.missing} нет в выгрузке</span>` : ''}
-        ${cs.structural ? `<span class="mc-pill mc-pill-struct">◌ ${cs.structural} вне выгрузки</span>` : ''}
-        ${cs.noSource ? `<span class="mc-pill mc-pill-nosrc">≈ ${cs.noSource} без раздела</span>` : ''}
-        ${cs.unclassified ? `<span class="mc-pill mc-pill-unk">? ${cs.unclassified} не распознано</span>` : ''}
+        ${cs.confirmed ? `<span class="mc-pill mc-pill-ok" data-tip="Слово распознано и есть факт в выгрузке за день по нужной категории.">✓ ${cs.confirmed} подтв.</span>` : ''}
+        ${cs.missing ? `<span class="mc-pill mc-pill-miss" data-tip="Слово названо, категория измеримая, но факта в выгрузке за день по ней нет — стоит проверить.">✗ ${cs.missing} нет в выгрузке</span>` : ''}
+        ${cs.structural ? `<span class="mc-pill mc-pill-struct" data-tip="Работа, которую выгрузка структурно не видит: устные согласования, консультации, корректировки прошлых периодов (config.js → MC_STRUCTURAL_PATTERNS).">◌ ${cs.structural} вне выгрузки</span>` : ''}
+        ${cs.noSource ? `<span class="mc-pill mc-pill-nosrc" data-tip="Категория распознана, но за ней нет отдельной таблицы-счётчика в выгрузке (например, заявления/ходатайства).">≈ ${cs.noSource} без раздела</span>` : ''}
+        ${cs.unclassified ? `<span class="mc-pill mc-pill-unk" data-tip="Слово не удалось отнести ни к одной категории — нужно разобрать вручную и дополнить таксономию config.js → MC_CATEGORIES.">? ${cs.unclassified} не распознано</span>` : ''}
       </div>`
     : '';
   const claims = acc.claims.length
@@ -1715,7 +1715,7 @@ function callAccountantCard(day, acc) {
   // --- 4. Работа в выгрузке, о которой на созвоне НЕ сказали (не пропускаем!)
   const unmentioned = acc.unmentioned.length
     ? `<div class="mc-unmentioned">
-        <div class="mc-col-title">🔎 В выгрузке есть, но на созвоне не упомянуто (${acc.unmentioned.length})</div>
+        <div class="mc-col-title" data-tip="Категории, по которым в выгрузке за день есть операции, но на созвоне о них не сказали. Помогает не потерять невыговоренную работу. Число — сколько таких разделов.">🔎 В выгрузке есть, но на созвоне не упомянуто (${acc.unmentioned.length})</div>
         ${acc.unmentioned.map((c) => `<div class="mc-metric"><span>${c.icon} ${esc(c.label)} <em>${c.system}</em></span><b>${fmtNum(c.count)}</b></div>`).join('')}
       </div>`
     : '';
@@ -1729,14 +1729,14 @@ function callAccountantCard(day, acc) {
     </div>
     <div class="mc-cols mc-cols-3">
       <div class="mc-col mc-col-said">
-        <div class="mc-col-title">🗣 Сказал на созвоне</div>
+        <div class="mc-col-title" data-tip="Что бухгалтер сказал на созвоне по каждой компании (accountant_daily_comments): комментарий и поле «не отражено». Чипы TaxService/ArmSoft — найдена ли компания в выгрузке.">🗣 Сказал на созвоне</div>
         ${said || '<p class="muted">—</p>'}
-        <div class="mc-col-title" style="margin-top:12px;">🧩 Разбор по словам ↔ выгрузка</div>
+        <div class="mc-col-title" style="margin-top:12px;" data-tip="Комментарий разбивается на отдельные слова-задачи, каждое сверяется с фактом за день по всем 26 категориям. Значок слева от слова — вердикт (см. подсказки на цветных плашках выше).">🧩 Разбор по словам ↔ выгрузка</div>
         ${claimSummary}
         <div class="mc-claims">${claims}</div>
       </div>
       <div class="mc-col mc-col-fact">
-        <div class="mc-col-title">📊 Факт в выгрузке · ${fmtDate(acc.actualDate)}</div>
+        <div class="mc-col-title" data-tip="Вся фактическая работа этого бухгалтера в выгрузке Артёма за день (все 26 разделов, счётчики из ob_accountant_activity_full). Клик по строке — конкретные документы.">📊 Факт в выгрузке · ${fmtDate(acc.actualDate)}</div>
         <div class="mc-facts">${factRows}</div>
       </div>
       <div class="mc-col mc-col-extra">
@@ -1759,15 +1759,15 @@ function callDayCard(day) {
   const analysisBlock = hidden ? '' : `
     <div class="mc-analysis">
       <div class="report-tiles mc-tiles">
-        <div class="report-tile tile-gray"><span class="tile-label">Отчитались</span>
+        <div class="report-tile tile-gray" data-tip="Сколько бухгалтеров что-то сказали на этом созвоне и о скольких компаниях суммарно (из accountant_daily_comments за дату созвона)."><span class="tile-label">Отчитались</span>
           <span class="tile-value">${a.accountantCount}</span><span class="tile-sub">бухгалтеров · ${a.companyCount} компаний</span></div>
-        <div class="report-tile tile-blue"><span class="tile-label">Факт в выгрузке</span>
+        <div class="report-tile tile-blue" data-tip="Сколько всего операций реально было в выгрузке Артёма ${whenSub} и в скольких из 26 разделов. Факт берётся из RPC ob_accountant_activity_full. День факта может отличаться от дня созвона (config.js → MORNING_CALLS.actualsDayOffset)."><span class="tile-label">Факт в выгрузке</span>
           <span class="tile-value">${fmtNum(a.fullActualTotal)}</span><span class="tile-sub">операций в ${a.categoriesUsed} раздел(ах) ${whenSub}</span></div>
-        <div class="report-tile tile-green"><span class="tile-label">Слов подтверждено</span>
+        <div class="report-tile tile-green" data-tip="Сколько СЛОВ (задач) бухгалтеров распознано и подтверждено фактом в выгрузке за день, из общего числа разобранных слов. Разбор слов — по таксономии config.js → MC_CATEGORIES."><span class="tile-label">Слов подтверждено</span>
           <span class="tile-value">${a.claimConfirmed}</span><span class="tile-sub">из ${a.claimTotal} разобранных слов</span></div>
-        <div class="report-tile tile-${a.claimMissing ? 'red' : 'green'}"><span class="tile-label">Сказали — нет факта</span>
+        <div class="report-tile tile-${a.claimMissing ? 'red' : 'green'}" data-tip="Слова, где бухгалтер назвал работу измеримой категории, но факта в выгрузке за день по этой категории НЕТ. Это главные кандидаты «сказал, но не сделал / не выгрузилось»."><span class="tile-label">Сказали — нет факта</span>
           <span class="tile-value">${a.claimMissing}</span><span class="tile-sub">задач без подтверждения</span></div>
-        <div class="report-tile tile-${a.unmentionedTotal ? 'yellow' : 'gray'}"><span class="tile-label">Не упомянуто</span>
+        <div class="report-tile tile-${a.unmentionedTotal ? 'yellow' : 'gray'}" data-tip="Операции, которые в выгрузке за день ЕСТЬ, но на созвоне о них не сказали ни слова — чтобы не потерять невыговоренную работу."><span class="tile-label">Не упомянуто</span>
           <span class="tile-value">${fmtNum(a.unmentionedTotal)}</span><span class="tile-sub">операций в выгрузке без слов</span></div>
       </div>
       <p class="mc-analysis-text">${esc(callAnalysisText(day))}</p>
@@ -1777,7 +1777,7 @@ function callDayCard(day) {
 
   return `<div class="meeting-day mc-day" id="mc-day-${day.date}">
     <div class="mc-day-head">
-      <h3 class="block-title">Созвон ${fmtDate(day.date)} <span class="count-pill">${day.accountants.length}</span></h3>
+      <h3 class="block-title" data-tip="Один день утреннего созвона. Плашка — сколько бухгалтеров в этот день отчитались. Ниже — сводный анализ дня и по каждому бухгалтеру полное сопоставление слов созвона с фактом выгрузки.">Созвон ${fmtDate(day.date)} <span class="count-pill">${day.accountants.length}</span></h3>
       <button class="btn btn-sm" data-mc-toggle="${day.date}">${hidden ? '▸ показать анализ созвона' : '▾ скрыть анализ созвона'}</button>
     </div>
     ${analysisBlock}
@@ -1791,9 +1791,19 @@ function renderCalls() {
   if (!body) return;
   const c = state.calls;
 
-  const accs = c.data
-    ? [...new Set(c.data.days.flatMap((d) => d.accountants.map((a) => a.accountant)))].sort((a, b) => a.localeCompare(b, 'ru'))
+  // Список бухгалтеров в селекте = ВСЕ бухгалтеры реестра OB (state.accCompare),
+  // объединённые с теми, кто реально что-то говорил на созвонах. Так в фильтре
+  // виден каждый бухгалтер, даже если по нему пока нет ни одного созвона —
+  // при выборе такого покажется пустое состояние «нет созвонов».
+  const callAccs = c.data
+    ? c.data.days.flatMap((d) => d.accountants.map((a) => a.accountant))
     : [];
+  const rosterAccs = state.accCompare
+    ? state.accCompare.byAccountant.map((a) => a.accountant)
+    : [];
+  const accs = [...new Set([...rosterAccs, ...callAccs])]
+    .filter((a) => a && a !== '— без бухгалтера')
+    .sort((a, b) => a.localeCompare(b, 'ru'));
   // границы доступных дат — из всех дней истории созвонов
   const allDates = c.data ? c.data.days.map((d) => d.date).sort() : [];
   const minDate = allDates[0] || '';
