@@ -175,6 +175,19 @@ const mergedNone = mergeAccountantFeedback(rep.days[1], null);
 eq(mergedNone.grandTotalMinutes, rep.days[1].totalMinutes, 'merge без фидбэка: итог = отчёт Артёма');
 eq(mergedNone.status, 'pending', 'merge без фидбэка: статус pending');
 
+// ---- фикс export_minutes: дневной итог минут ДРОБНЫЙ → колонка NUMERIC ----
+// Норматив на услугу дробный (config.js → CHRONO.minutesPerUnit, счёт = 7.8 мин),
+// поэтому итог минут за день бывает дробным (6 × 7.8 = 46.8). Раньше колонка
+// accountant_day_reports.export_minutes была INTEGER и «Сохранить день» падал с
+// «invalid input syntax for type integer: "46.8"». Тип расширен до NUMERIC.
+eq(CHRONO.minutesPerUnit.invoice_issued, 7.8, 'норматив счёта дробный (7.8 мин)');
+const repFrac = buildDailyReport([{ activity_date: '2026-07-16', category: 'invoice_issued', cnt: 6 }], CHRONO);
+const exportMinutes = repFrac.days[0].totalMinutes;
+ok(!Number.isInteger(exportMinutes), 'дневной итог минут (6×7.8) дробный → export_minutes не INTEGER');
+ok(Math.abs(exportMinutes - 46.8) < 1e-9, 'дневной итог 6 счетов = 46.8 мин (значение, ломавшее INTEGER)');
+// сохранение/чтение export_minutes идёт как JSON в PostgREST — дробь не теряется
+eq(JSON.parse(JSON.stringify({ export_minutes: 46.8 })).export_minutes, 46.8, 'export_minutes 46.8 переживает JSON-сериализацию без потери точности');
+
 // ---- morningcalls: mcShiftDate ----
 eq(mcShiftDate('2026-06-23', 0), '2026-06-23', 'mcShiftDate 0 = та же дата');
 eq(mcShiftDate('2026-06-23', -1), '2026-06-22', 'mcShiftDate -1 = день назад');
