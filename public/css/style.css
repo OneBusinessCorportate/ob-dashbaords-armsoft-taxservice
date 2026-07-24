@@ -159,6 +159,38 @@ body.modal-open { overflow: hidden; }
   text-decoration: underline dotted var(--text-3);
   text-underline-offset: 2px;
 }
+
+/* Пояснения не только на заголовках таблиц: подписи-карточки (KPI), плитки
+   с большими цифрами, заголовки блоков/разделов, названия услуг и строки
+   статистики. Единый визуальный признак «есть подсказка» — значок ⓘ. */
+.view-title[data-tip],
+.block-title[data-tip],
+.tile-label[data-tip],
+.card-label[data-tip],
+.dr-metric-name[data-tip],
+.metric-name[data-tip],
+.mc-col-title[data-tip],
+.mc-claim-verdict[data-tip],
+.acc-feed-head[data-tip],
+.report-stats span[data-tip],
+.item-meta span[data-tip],
+.snap-grid span[data-tip] {
+  text-decoration: underline dotted var(--text-3);
+  text-underline-offset: 3px;
+}
+.view-title[data-tip]::after,
+.block-title[data-tip]::after,
+.tile-label[data-tip]::after,
+.card-label[data-tip]::after,
+.dr-metric-name[data-tip]::after,
+.metric-name[data-tip]::after,
+.mc-col-title[data-tip]::after,
+.report-stats span[data-tip]::after,
+.item-meta span[data-tip]::after,
+.mc-pill[data-tip]::after,
+.wchip[data-tip]::after {
+  content: "ⓘ"; font-size: 0.8em; opacity: 0.5; margin-left: 3px; font-weight: 400;
+}
 /* Плавающая подсказка (position: fixed → не обрезается прокруткой таблицы) */
 .th-tooltip {
   position: fixed; z-index: 80; max-width: 300px;

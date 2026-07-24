@@ -75,8 +75,64 @@ const S = {
   }
   const accs = S.cmp.byAccountant.map((a) => a.accountant).filter((a) => a && a !== '— без бухгалтера');
   const preferred = accs.includes(DAILY_REPORT.defaultAccountant) ? DAILY_REPORT.defaultAccountant : accs[0];
+  initTooltips();
   await loadReport(preferred);
 })();
+
+/* ------------------------- Поясняющие подсказки -------------------------- */
+/**
+ * Плавающие подсказки при наведении (десктоп) или тапе (мобильные) на любые
+ * элементы с атрибутом data-tip: подписи-плитки, названия услуг, итоги.
+ * Один элемент position:fixed — не обрезается прокруткой. Делегирование →
+ * работает и для динамически отрисованных карточек дней.
+ */
+function initTooltips() {
+  let tip = $('#th-tooltip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = 'th-tooltip';
+    tip.className = 'th-tooltip';
+    tip.hidden = true;
+    document.body.appendChild(tip);
+  }
+  let current = null;
+  const place = (el) => {
+    const r = el.getBoundingClientRect();
+    tip.style.maxWidth = Math.min(300, window.innerWidth - 20) + 'px';
+    const tr = tip.getBoundingClientRect();
+    let top = r.top - tr.height - 8;
+    const below = top < 8;
+    if (below) top = r.bottom + 8;
+    let left = r.left + r.width / 2 - tr.width / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - tr.width - 8));
+    tip.style.top = Math.round(top) + 'px';
+    tip.style.left = Math.round(left) + 'px';
+    tip.classList.toggle('tip-below', below);
+  };
+  const show = (el) => {
+    const text = el.getAttribute('data-tip');
+    if (!text) return;
+    current = el;
+    tip.textContent = text;
+    tip.hidden = false;
+    place(el);
+  };
+  const hide = () => { current = null; tip.hidden = true; };
+  document.addEventListener('mouseover', (e) => {
+    const el = e.target.closest('[data-tip]');
+    if (el) show(el);
+  });
+  document.addEventListener('mouseout', (e) => {
+    if (current && e.target.closest('[data-tip]') === current) hide();
+  });
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-tip]');
+    if (el) { el === current ? hide() : show(el); }
+    else if (current) hide();
+  });
+  window.addEventListener('scroll', hide, true);
+  window.addEventListener('resize', hide);
+}
 
 /* --------------------------- загрузка отчёта ----------------------------- */
 async function loadReport(accountant) {
@@ -123,11 +179,11 @@ function render() {
   const confirmedDays = [...S.reportsByDate.values()].filter((r) => r.status === 'confirmed').length;
 
   const tiles = `<div class="tiles">
-    <div class="tile"><div class="lab">Компаний у бухгалтера</div><div class="val">${b.activeCount || 0}</div><div class="foot">${b.withWorkCount || 0} с работой в выгрузке</div></div>
-    <div class="tile blue"><div class="lab">Дней с работой</div><div class="val">${rep.dayCount}</div><div class="foot">в выгрузке Артёма</div></div>
-    <div class="tile blue"><div class="lab">Действий всего</div><div class="val">${fmtNum(rep.totalCount)}</div><div class="foot">счета, отчёты и т.д.</div></div>
-    <div class="tile green"><div class="lab">Времени по хронометражу</div><div class="val">${fmtHours(rep.totalMinutes)}</div><div class="foot">за весь период</div></div>
-    <div class="tile ${confirmedDays ? 'green' : ''}"><div class="lab">Дней подтверждено</div><div class="val">${confirmedDays}</div><div class="foot">из ${rep.dayCount}</div></div>
+    <div class="tile"><div class="lab" data-tip="Сколько активных компаний закреплено за бухгалтером в реестре OB; в подписи — у скольких есть работа в выгрузке Артёма.">Компаний у бухгалтера</div><div class="val">${b.activeCount || 0}</div><div class="foot">${b.withWorkCount || 0} с работой в выгрузке</div></div>
+    <div class="tile blue"><div class="lab" data-tip="За сколько отдельных дней в выгрузке Артёма есть хоть одна операция бухгалтера (окно последних 30 дней активности).">Дней с работой</div><div class="val">${rep.dayCount}</div><div class="foot">в выгрузке Артёма</div></div>
+    <div class="tile blue"><div class="lab" data-tip="Сумма всех действий за период: сданные отчёты + выставленные/полученные счета (ArmSoft и TaxService).">Действий всего</div><div class="val">${fmtNum(rep.totalCount)}</div><div class="foot">счета, отчёты и т.д.</div></div>
+    <div class="tile green"><div class="lab" data-tip="Оценка времени = Σ(количество услуг × норматив минут). Норматив из хронометража Гарри (config.js → CHRONO.minutesPerUnit): счёт 7,8 мин, сданный отчёт 180 мин.">Времени по хронометражу</div><div class="val">${fmtHours(rep.totalMinutes)}</div><div class="foot">за весь период</div></div>
+    <div class="tile ${confirmedDays ? 'green' : ''}"><div class="lab" data-tip="Сколько дней бухгалтер уже подтвердил (статус «Подтверждено») из общего числа дней с работой.">Дней подтверждено</div><div class="val">${confirmedDays}</div><div class="foot">из ${rep.dayCount}</div></div>
   </div>`;
 
   const letter = `<div class="toolbar">
@@ -146,7 +202,7 @@ function render() {
     ? `<div class="toolbar"><button class="btn" data-more>Показать ещё дни (${rep.days.length - days.length})</button></div>` : '';
 
   root.innerHTML = picker + chrono + tiles + letter
-    + `<h2 class="block-title">Хронология по дням <span class="pill">${rep.dayCount}</span></h2>`
+    + `<h2 class="block-title" data-tip="По каждому дню: отчёт Артёма по типам услуг и время по хронометражу → итог времени → комментарии бухгалтера → итог с учётом комментариев. Плашка — число дней с работой.">Хронология по дням <span class="pill">${rep.dayCount}</span></h2>`
     + `<p class="hint">Для каждого дня: отчёт Артёма по типам услуг и время по хронометражу → итог времени →
         комментарии бухгалтера (в т.ч. к каждой цифре и что делал помимо) → итог с учётом комментариев.</p>`
     + list + more;
@@ -175,7 +231,7 @@ function metricRow(m, date, notes) {
   const accCount = note.accountant_count;
   return `<div class="metric${disputed ? ' disp' : ''}">
     <div class="metric-main">
-      <span class="metric-name">${st.icon} ${esc(st.label)}</span>
+      <span class="metric-name" data-tip="Тип услуги из выгрузки Артёма (${esc(st.system || '—')}). Количество за день × норматив ${m.minutesPerUnit} мин = время. Норматив меняется одним числом в config.js → CHRONO.minutesPerUnit.">${st.icon} ${esc(st.label)}</span>
       <span class="metric-nums"><b class="cnt">${m.count}</b> ${esc(st.unit)}
         · <span class="time">${fmtMinutes(m.minutes)}</span>
         <span class="muted">(${m.count} × ${m.minutesPerUnit} мин)</span></span>
@@ -213,12 +269,12 @@ function dayCard(day) {
   return `<div class="day" id="day-${day.date}">
     <div class="day-head">
       <div class="day-date">${fmtDate(day.date)}<span class="badge ${stMeta.color}">${stMeta.label}</span></div>
-      <div class="day-total">по отчёту Артёма: <b>${fmtHours(day.totalMinutes)}</b> <span class="muted">(${day.totalCount} действ.)</span></div>
+      <div class="day-total" data-tip="Суммарное время за день по хронометражу = сумма (количество × норматив) по всем услугам дня. В скобках — число действий.">по отчёту Артёма: <b>${fmtHours(day.totalMinutes)}</b> <span class="muted">(${day.totalCount} действ.)</span></div>
     </div>
 
     <div class="metrics">${day.metrics.map((m) => metricRow(m, day.date, notes)).join('')}</div>
 
-    <div class="day-sum">Итог по отчёту системы (Артём): <b>${fmtHours(day.totalMinutes)}</b>
+    <div class="day-sum" data-tip="Итог времени по выгрузке Артёма за день (без правок бухгалтера) — сумма минут по всем услугам выше.">Итог по отчёту системы (Артём): <b>${fmtHours(day.totalMinutes)}</b>
       <span class="muted">= ${fmtMinutes(day.totalMinutes)}</span></div>
 
     <div class="feedback">
@@ -231,7 +287,7 @@ function dayCard(day) {
       <label>Общий комментарий бухгалтера за день:</label>
       <textarea data-daycomment rows="2" placeholder="Свободный комментарий…">${esc(fb && fb.accountant_comment || '')}</textarea>
 
-      <div class="grand">Итого с учётом комментариев бухгалтера: <b>${fmtHours(md.grandTotalMinutes)}</b>
+      <div class="grand" data-tip="Итог времени с учётом бухгалтера = время по выгрузке Артёма + минуты, дописанные бухгалтером в блоке «что делал помимо» (формат «описание | минуты»).">Итого с учётом комментариев бухгалтера: <b>${fmtHours(md.grandTotalMinutes)}</b>
         <span class="muted">(отчёт Артёма ${fmtMinutes(day.totalMinutes)} + дописано ${fmtMinutes(md.extraMinutes)})</span></div>
 
       <div class="actions">
