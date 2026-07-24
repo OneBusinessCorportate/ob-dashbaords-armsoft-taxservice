@@ -194,10 +194,10 @@ function renderSummaryCards() {
   ];
 
   $('#summary-cards').innerHTML = cards.map((c, i) => `
-    <button class="card card-${c.value === 0 && c.color !== 'green' ? 'gray' : c.color}" data-card="${i}">
+    <button class="card card-${c.value === 0 && c.color !== 'green' ? 'gray' : c.color}" data-card="${i}" data-tip="${esc(c.tip)}">
       <span class="card-icon">${c.icon}</span>
       <span class="card-value">${c.value}</span>
-      <span class="card-label" data-tip="${esc(c.tip)}">${c.label}</span>
+      <span class="card-label">${c.label}</span>
     </button>`).join('');
   document.querySelectorAll('#summary-cards .card').forEach((el) =>
     el.addEventListener('click', () => cards[+el.dataset.card].drill()));
@@ -412,13 +412,13 @@ function renderSync() {
   const reportHtml = `
     <h3 class="block-title">Отчёт по процессу взаимодействия с Артёмом</h3>
     <div class="report-tiles">
-      <div class="report-tile tile-${exportedGood ? 'green' : expMeta.color}">
-        <span class="tile-label" data-tip="Успел ли Артём сделать выгрузку по графику. Ожидаем свежую выгрузку к 02:00 по Еревану + 12 ч льготного периода (config.js → TASK_SYNC.exportSchedule). Статус приходит из серверной проверки artyom_export_schedule_status: Выгрузил / Ожидаем / Просрочено / Нет данных.">1. Выгрузил Артём?</span>
+      <div class="report-tile tile-${exportedGood ? 'green' : expMeta.color}" data-tip="Успел ли Артём сделать выгрузку по графику. Ожидаем свежую выгрузку к 02:00 по Еревану + 12 ч льготного периода (config.js → TASK_SYNC.exportSchedule). Статус приходит из серверной проверки artyom_export_schedule_status: Выгрузил / Ожидаем / Просрочено / Нет данных.">
+        <span class="tile-label">1. Выгрузил Артём?</span>
         <span class="tile-value">${expMeta.emoji} ${expMeta.label}</span>
         <span class="tile-sub">Проверка графика выгрузки</span>
       </div>
-      <div class="report-tile tile-${matchColor}">
-        <span class="tile-label" data-tip="Насколько задачи бухгалтеров подтверждаются выгрузкой. Соответствие (%) = задачи, отражённые в выгрузке ÷ ожидаемые в выгрузке × 100. Ожидаемые = задачи, которые в норме должны попасть в выгрузку (без структурно невидимой работы). Цвет: ≥90% зелёный, ≥70% жёлтый, ниже красный.">2. Данные соответствуют действительности?</span>
+      <div class="report-tile tile-${matchColor}" data-tip="Насколько задачи бухгалтеров подтверждаются выгрузкой. Соответствие (%) = задачи, отражённые в выгрузке ÷ ожидаемые в выгрузке × 100. Ожидаемые = задачи, которые в норме должны попасть в выгрузку (без структурно невидимой работы). Цвет: ≥90% зелёный, ≥70% жёлтый, ниже красный.">
+        <span class="tile-label">2. Данные соответствуют действительности?</span>
         <span class="tile-value">${matchRate == null ? '—' : matchRate + '%'}</span>
         <span class="tile-sub">${rep.inExportTotal} из ${rep.expectedTotal} задач отражены в выгрузке</span>
       </div>
@@ -968,13 +968,13 @@ function renderAccountants() {
 
   const tiles = `
     <div class="report-tiles acc-tiles">
-      <div class="report-tile tile-gray"><span class="tile-label" data-tip="Сколько компаний активны (is_active) — по выбранному бухгалтеру или по всем. Из ${agg.total} компаний в реестре OB, закреплённых за бухгалтером(ами). Мусорные названия не считаются.">Компаний активных</span>
+      <div class="report-tile tile-gray" data-tip="Сколько компаний активны (is_active) — по выбранному бухгалтеру или по всем. Из ${agg.total} компаний в реестре OB, закреплённых за бухгалтером(ами). Мусорные названия не считаются."><span class="tile-label">Компаний активных</span>
         <span class="tile-value">${agg.active}</span><span class="tile-sub">из ${agg.total} в реестре</span></div>
-      <div class="report-tile tile-green"><span class="tile-label" data-tip="Сколько компаний имеют хотя бы одну реальную операцию в выгрузке Артёма (сданный отчёт или выставленный/полученный счёт). Работа берётся по company_id (ArmSoft) и ИНН (TaxService).">С работой в выгрузке</span>
+      <div class="report-tile tile-green" data-tip="Сколько компаний имеют хотя бы одну реальную операцию в выгрузке Артёма (сданный отчёт или выставленный/полученный счёт). Работа берётся по company_id (ArmSoft) и ИНН (TaxService)."><span class="tile-label">С работой в выгрузке</span>
         <span class="tile-value">${agg.withWork}</span><span class="tile-sub">есть реальные задачи Артёма</span></div>
-      <div class="report-tile tile-blue"><span class="tile-label" data-tip="Сумма сданных налоговых отчётов (форм) по всем компаниям — из налоговой активности выгрузки Артёма (reports_submitted).">Сдано отчётов</span>
+      <div class="report-tile tile-blue" data-tip="Сумма сданных налоговых отчётов (форм) по всем компаниям — из налоговой активности выгрузки Артёма (reports_submitted)."><span class="tile-label">Сдано отчётов</span>
         <span class="tile-value">${fmtNum(agg.workReports)}</span><span class="tile-sub">налоговые формы</span></div>
-      <div class="report-tile tile-blue"><span class="tile-label" data-tip="Сумма счетов: выставленные / полученные. Считаются вместе счета ArmSoft и налоговые э-счета TaxService (invoices_issued/received + tax_invoices_issued/received).">Счета (выст. / получ.)</span>
+      <div class="report-tile tile-blue" data-tip="Сумма счетов: выставленные / полученные. Считаются вместе счета ArmSoft и налоговые э-счета TaxService (invoices_issued/received + tax_invoices_issued/received)."><span class="tile-label">Счета (выст. / получ.)</span>
         <span class="tile-value">${fmtNum(agg.workInvoicesIssued)} / ${fmtNum(agg.workInvoicesReceived)}</span><span class="tile-sub">ArmSoft + TaxService</span></div>
     </div>`;
 
@@ -1264,15 +1264,15 @@ function renderDaily() {
   const confirmedDays = [...d.reportsByDate.values()].filter((r) => r.status === 'confirmed').length;
 
   const tiles = `<div class="report-tiles acc-tiles">
-    <div class="report-tile tile-gray"><span class="tile-label" data-tip="Сколько активных компаний закреплено за этим бухгалтером в реестре OB; в скобках — у скольких из них есть работа в выгрузке Артёма.">Компаний у бухгалтера</span>
+    <div class="report-tile tile-gray" data-tip="Сколько активных компаний закреплено за этим бухгалтером в реестре OB; в скобках — у скольких из них есть работа в выгрузке Артёма."><span class="tile-label">Компаний у бухгалтера</span>
       <span class="tile-value">${b.activeCount}</span><span class="tile-sub">${b.withWorkCount} с работой в выгрузке</span></div>
-    <div class="report-tile tile-blue"><span class="tile-label" data-tip="За сколько отдельных дней в выгрузке Артёма есть хоть одна операция этого бухгалтера (окно — последние 30 дней активности).">Дней с работой</span>
+    <div class="report-tile tile-blue" data-tip="За сколько отдельных дней в выгрузке Артёма есть хоть одна операция этого бухгалтера (окно — последние 30 дней активности)."><span class="tile-label">Дней с работой</span>
       <span class="tile-value">${rep.dayCount}</span><span class="tile-sub">в выгрузке Артёма</span></div>
-    <div class="report-tile tile-blue"><span class="tile-label" data-tip="Сумма всех действий за период: сданные отчёты + выставленные/полученные счета (ArmSoft и TaxService).">Действий всего</span>
+    <div class="report-tile tile-blue" data-tip="Сумма всех действий за период: сданные отчёты + выставленные/полученные счета (ArmSoft и TaxService)."><span class="tile-label">Действий всего</span>
       <span class="tile-value">${fmtNum(rep.totalCount)}</span><span class="tile-sub">счета, отчёты и т.д.</span></div>
-    <div class="report-tile tile-green"><span class="tile-label" data-tip="Оценка отработанного времени = Σ(количество услуг × норматив минут на услугу). Норматив из хронометража Гарри (config.js → CHRONO.minutesPerUnit): счёт 7,8 мин, сданный отчёт 180 мин.">Времени по хронометражу</span>
+    <div class="report-tile tile-green" data-tip="Оценка отработанного времени = Σ(количество услуг × норматив минут на услугу). Норматив из хронометража Гарри (config.js → CHRONO.minutesPerUnit): счёт 7,8 мин, сданный отчёт 180 мин."><span class="tile-label">Времени по хронометражу</span>
       <span class="tile-value">${fmtHours(rep.totalMinutes)}</span><span class="tile-sub">за весь период</span></div>
-    <div class="report-tile tile-${confirmedDays ? 'green' : 'yellow'}"><span class="tile-label" data-tip="Сколько дней бухгалтер уже подтвердил (статус «Подтверждено бухгалтером») из общего числа дней с работой.">Дней подтверждено</span>
+    <div class="report-tile tile-${confirmedDays ? 'green' : 'yellow'}" data-tip="Сколько дней бухгалтер уже подтвердил (статус «Подтверждено бухгалтером») из общего числа дней с работой."><span class="tile-label">Дней подтверждено</span>
       <span class="tile-value">${confirmedDays}</span><span class="tile-sub">из ${rep.dayCount}</span></div>
   </div>`;
 
@@ -1759,15 +1759,15 @@ function callDayCard(day) {
   const analysisBlock = hidden ? '' : `
     <div class="mc-analysis">
       <div class="report-tiles mc-tiles">
-        <div class="report-tile tile-gray"><span class="tile-label" data-tip="Сколько бухгалтеров что-то сказали на этом созвоне и о скольких компаниях суммарно (из accountant_daily_comments за дату созвона).">Отчитались</span>
+        <div class="report-tile tile-gray" data-tip="Сколько бухгалтеров что-то сказали на этом созвоне и о скольких компаниях суммарно (из accountant_daily_comments за дату созвона)."><span class="tile-label">Отчитались</span>
           <span class="tile-value">${a.accountantCount}</span><span class="tile-sub">бухгалтеров · ${a.companyCount} компаний</span></div>
-        <div class="report-tile tile-blue"><span class="tile-label" data-tip="Сколько всего операций реально было в выгрузке Артёма ${whenSub} и в скольких из 26 разделов. Факт берётся из RPC ob_accountant_activity_full. День факта может отличаться от дня созвона (config.js → MORNING_CALLS.actualsDayOffset).">Факт в выгрузке</span>
+        <div class="report-tile tile-blue" data-tip="Сколько всего операций реально было в выгрузке Артёма ${whenSub} и в скольких из 26 разделов. Факт берётся из RPC ob_accountant_activity_full. День факта может отличаться от дня созвона (config.js → MORNING_CALLS.actualsDayOffset)."><span class="tile-label">Факт в выгрузке</span>
           <span class="tile-value">${fmtNum(a.fullActualTotal)}</span><span class="tile-sub">операций в ${a.categoriesUsed} раздел(ах) ${whenSub}</span></div>
-        <div class="report-tile tile-green"><span class="tile-label" data-tip="Сколько СЛОВ (задач) бухгалтеров распознано и подтверждено фактом в выгрузке за день, из общего числа разобранных слов. Разбор слов — по таксономии config.js → MC_CATEGORIES.">Слов подтверждено</span>
+        <div class="report-tile tile-green" data-tip="Сколько СЛОВ (задач) бухгалтеров распознано и подтверждено фактом в выгрузке за день, из общего числа разобранных слов. Разбор слов — по таксономии config.js → MC_CATEGORIES."><span class="tile-label">Слов подтверждено</span>
           <span class="tile-value">${a.claimConfirmed}</span><span class="tile-sub">из ${a.claimTotal} разобранных слов</span></div>
-        <div class="report-tile tile-${a.claimMissing ? 'red' : 'green'}"><span class="tile-label" data-tip="Слова, где бухгалтер назвал работу измеримой категории, но факта в выгрузке за день по этой категории НЕТ. Это главные кандидаты «сказал, но не сделал / не выгрузилось».">Сказали — нет факта</span>
+        <div class="report-tile tile-${a.claimMissing ? 'red' : 'green'}" data-tip="Слова, где бухгалтер назвал работу измеримой категории, но факта в выгрузке за день по этой категории НЕТ. Это главные кандидаты «сказал, но не сделал / не выгрузилось»."><span class="tile-label">Сказали — нет факта</span>
           <span class="tile-value">${a.claimMissing}</span><span class="tile-sub">задач без подтверждения</span></div>
-        <div class="report-tile tile-${a.unmentionedTotal ? 'yellow' : 'gray'}"><span class="tile-label" data-tip="Операции, которые в выгрузке за день ЕСТЬ, но на созвоне о них не сказали ни слова — чтобы не потерять невыговоренную работу.">Не упомянуто</span>
+        <div class="report-tile tile-${a.unmentionedTotal ? 'yellow' : 'gray'}" data-tip="Операции, которые в выгрузке за день ЕСТЬ, но на созвоне о них не сказали ни слова — чтобы не потерять невыговоренную работу."><span class="tile-label">Не упомянуто</span>
           <span class="tile-value">${fmtNum(a.unmentionedTotal)}</span><span class="tile-sub">операций в выгрузке без слов</span></div>
       </div>
       <p class="mc-analysis-text">${esc(callAnalysisText(day))}</p>

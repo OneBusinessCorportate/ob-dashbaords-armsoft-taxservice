@@ -165,8 +165,8 @@ body.modal-open { overflow: hidden; }
    статистики. Единый визуальный признак «есть подсказка» — значок ⓘ. */
 .view-title[data-tip],
 .block-title[data-tip],
-.tile-label[data-tip],
-.card-label[data-tip],
+.report-tile[data-tip] .tile-label,
+.card[data-tip] .card-label,
 .dr-metric-name[data-tip],
 .metric-name[data-tip],
 .mc-col-title[data-tip],
@@ -180,8 +180,8 @@ body.modal-open { overflow: hidden; }
 }
 .view-title[data-tip]::after,
 .block-title[data-tip]::after,
-.tile-label[data-tip]::after,
-.card-label[data-tip]::after,
+.report-tile[data-tip] .tile-label::after,
+.card[data-tip] .card-label::after,
 .dr-metric-name[data-tip]::after,
 .metric-name[data-tip]::after,
 .mc-col-title[data-tip]::after,
@@ -191,6 +191,8 @@ body.modal-open { overflow: hidden; }
 .wchip[data-tip]::after {
   content: "ⓘ"; font-size: 0.8em; opacity: 0.5; margin-left: 3px; font-weight: 400;
 }
+/* Плитка/карточка целиком несёт подсказку → навести можно и на саму цифру */
+.report-tile[data-tip], .card[data-tip], .tile[data-tip] { cursor: help; }
 /* Плавающая подсказка (position: fixed → не обрезается прокруткой таблицы) */
 .th-tooltip {
   position: fixed; z-index: 80; max-width: 300px;

@@ -151,7 +151,7 @@ a { color: var(--blue); }
 /* Признак «есть пояснение»: пунктирное подчёркивание + курсор help + значок ⓘ.
    Работает на подписях-плитках, названиях услуг, заголовках и итогах. */
 [data-tip] { cursor: help; }
-.tile .lab[data-tip],
+.tile[data-tip] .lab,
 .metric-name[data-tip],
 .block-title[data-tip],
 .day-total[data-tip],
@@ -160,7 +160,7 @@ a { color: var(--blue); }
   text-decoration: underline dotted #b8bfca;
   text-underline-offset: 3px;
 }
-.tile .lab[data-tip]::after,
+.tile[data-tip] .lab::after,
 .metric-name[data-tip]::after,
 .block-title[data-tip]::after {
   content: "ⓘ"; font-size: 0.8em; opacity: 0.5; margin-left: 3px; font-weight: 400;

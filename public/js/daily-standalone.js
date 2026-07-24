@@ -179,11 +179,11 @@ function render() {
   const confirmedDays = [...S.reportsByDate.values()].filter((r) => r.status === 'confirmed').length;
 
   const tiles = `<div class="tiles">
-    <div class="tile"><div class="lab" data-tip="Сколько активных компаний закреплено за бухгалтером в реестре OB; в подписи — у скольких есть работа в выгрузке Артёма.">Компаний у бухгалтера</div><div class="val">${b.activeCount || 0}</div><div class="foot">${b.withWorkCount || 0} с работой в выгрузке</div></div>
-    <div class="tile blue"><div class="lab" data-tip="За сколько отдельных дней в выгрузке Артёма есть хоть одна операция бухгалтера (окно последних 30 дней активности).">Дней с работой</div><div class="val">${rep.dayCount}</div><div class="foot">в выгрузке Артёма</div></div>
-    <div class="tile blue"><div class="lab" data-tip="Сумма всех действий за период: сданные отчёты + выставленные/полученные счета (ArmSoft и TaxService).">Действий всего</div><div class="val">${fmtNum(rep.totalCount)}</div><div class="foot">счета, отчёты и т.д.</div></div>
-    <div class="tile green"><div class="lab" data-tip="Оценка времени = Σ(количество услуг × норматив минут). Норматив из хронометража Гарри (config.js → CHRONO.minutesPerUnit): счёт 7,8 мин, сданный отчёт 180 мин.">Времени по хронометражу</div><div class="val">${fmtHours(rep.totalMinutes)}</div><div class="foot">за весь период</div></div>
-    <div class="tile ${confirmedDays ? 'green' : ''}"><div class="lab" data-tip="Сколько дней бухгалтер уже подтвердил (статус «Подтверждено») из общего числа дней с работой.">Дней подтверждено</div><div class="val">${confirmedDays}</div><div class="foot">из ${rep.dayCount}</div></div>
+    <div class="tile" data-tip="Сколько активных компаний закреплено за бухгалтером в реестре OB; в подписи — у скольких есть работа в выгрузке Артёма."><div class="lab">Компаний у бухгалтера</div><div class="val">${b.activeCount || 0}</div><div class="foot">${b.withWorkCount || 0} с работой в выгрузке</div></div>
+    <div class="tile blue" data-tip="За сколько отдельных дней в выгрузке Артёма есть хоть одна операция бухгалтера (окно последних 30 дней активности)."><div class="lab">Дней с работой</div><div class="val">${rep.dayCount}</div><div class="foot">в выгрузке Артёма</div></div>
+    <div class="tile blue" data-tip="Сумма всех действий за период: сданные отчёты + выставленные/полученные счета (ArmSoft и TaxService)."><div class="lab">Действий всего</div><div class="val">${fmtNum(rep.totalCount)}</div><div class="foot">счета, отчёты и т.д.</div></div>
+    <div class="tile green" data-tip="Оценка времени = Σ(количество услуг × норматив минут). Норматив из хронометража Гарри (config.js → CHRONO.minutesPerUnit): счёт 7,8 мин, сданный отчёт 180 мин."><div class="lab">Времени по хронометражу</div><div class="val">${fmtHours(rep.totalMinutes)}</div><div class="foot">за весь период</div></div>
+    <div class="tile ${confirmedDays ? 'green' : ''}" data-tip="Сколько дней бухгалтер уже подтвердил (статус «Подтверждено») из общего числа дней с работой."><div class="lab">Дней подтверждено</div><div class="val">${confirmedDays}</div><div class="foot">из ${rep.dayCount}</div></div>
   </div>`;
 
   const letter = `<div class="toolbar">
