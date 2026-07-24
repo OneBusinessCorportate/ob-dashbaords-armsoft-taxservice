@@ -200,7 +200,7 @@ CREATE TABLE IF NOT EXISTS public.accountant_day_reports (
     accountant_comment TEXT,                       -- что делал помимо учтённого часа (свободный текст)
     metric_notes       JSONB NOT NULL DEFAULT '{}'::jsonb,   -- комментарии по каждой цифре Артёма
     extra_work         JSONB NOT NULL DEFAULT '[]'::jsonb,   -- дописанная работа [{desc, minutes}]
-    export_minutes     INTEGER,                    -- снимок минут по отчёту Артёма (на момент сохранения)
+    export_minutes     NUMERIC,                    -- снимок минут по отчёту Артёма (дробный: норматив на услугу дробный, напр. 7.8 мин; см. миграцию 2026-07-24)
     reviewer_note      TEXT,
     confirmed_at       TIMESTAMPTZ,
     created_at         TIMESTAMPTZ DEFAULT NOW(),
