@@ -1501,7 +1501,7 @@ function renderMeetings() {
         return `<div class="item-card">
           <div class="item-head">
             <strong>${esc(acc)}</strong>
-            <span class="badge ${missing.length ? 'badge-red' : 'badge-green'}" data-tip="Сколько компаний, упомянутых этим бухгалтером на встрече, НЕ найдено в выгрузке Артёма (ни в TaxService, ни в ArmSoft, точное совпадение названия).">
+            <span class="badge ${missing.length ? 'badge-red' : 'badge-green'}" data-tip="Сколько компаний, упомянутых этим бухгалтером, НЕ подтверждены точным совпадением названия в выгрузке (ни в TaxService, ни в ArmSoft). Неточное совпадение (≈) показывается у компании, но как присутствие не засчитывается — такая компания тоже попадает в «нет в выгрузке».">
               ${missing.length ? `${missing.length} нет в выгрузке` : 'всё в выгрузке'}
             </span>
           </div>
